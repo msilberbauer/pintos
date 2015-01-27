@@ -1,3 +1,10 @@
 setitimer-helper
 squish-pty
 squish-unix
+*.o
+*~
+pintos-gdb
+bochsout.txt
+bochsrc.txt
+pintos
+Pintos.pm
