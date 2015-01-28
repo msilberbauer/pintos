@@ -28,6 +28,9 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* List of all sleeping processes. */
+static struct list sleeping_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -91,6 +94,7 @@ void thread_init (void)
     lock_init (&tid_lock);
     list_init (&ready_list);
     list_init (&all_list);
+    list_init (&sleeping_list);
 
     /* Set up a thread structure for the running thread. */
     initial_thread = running_thread ();
@@ -117,7 +121,7 @@ void thread_start (void)
 
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
-void thread_tick (void)
+void thread_tick (int64_t cur)
 {
     struct thread *t = thread_current ();
 
@@ -131,6 +135,23 @@ void thread_tick (void)
     else
         kernel_ticks++;
 
+    /* Check sleeplist and wake up threads with ending sleeptimer */
+    struct list_elem *e;
+
+    for (e = list_begin (&sleeping_list); e != list_end (&sleeping_list);
+           e = list_next (e))
+    {
+        struct thread *t = list_entry (e, struct thread, sleepelem);
+
+        if(t->sleepticks <= cur)
+        {
+            /* Remove from sleeping list */
+            list_remove(&t->sleepelem);
+            t->sleepticks = 0;
+            thread_unblock(t);            
+        }            
+    }    
+    
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
         intr_yield_on_return ();
@@ -266,8 +287,7 @@ tid_t thread_tid (void)
 
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
-void
-thread_exit (void)
+void thread_exit (void)
 {
     ASSERT (!intr_context ());
 
@@ -439,6 +459,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
     strlcpy (t->name, name, sizeof t->name);
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
+    t->sleepticks = 0;
     t->magic = THREAD_MAGIC;
 
     old_level = intr_disable ();
@@ -554,3 +575,14 @@ static tid_t allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+
+/* Sleep the current thread */
+void thread_sleep(int64_t ticks)
+{
+    /* Put the current thread on the sleeplist and block it. */
+    struct thread *t = thread_current ();
+    t->sleepticks = ticks;
+    list_push_back (&sleeping_list, &t->sleepelem);
+    thread_block();
+}
