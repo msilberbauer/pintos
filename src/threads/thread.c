@@ -28,7 +28,8 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
-/* List of all sleeping processes. */
+/* List of all sleeping processes which are in THREAD_BLOCKED
+   state */
 static struct list sleeping_list;
 
 /* Idle thread. */
@@ -121,7 +122,7 @@ void thread_start (void)
 
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
-void thread_tick (int64_t cur)
+void thread_tick (int64_t nowtick)
 {
     struct thread *t = thread_current ();
 
@@ -143,11 +144,11 @@ void thread_tick (int64_t cur)
     {
         struct thread *t = list_entry (e, struct thread, sleepelem);
 
-        if(t->sleepticks <= cur)
+        if(nowtick >= t->wake_tick)
         {
             /* Remove from sleeping list */
             list_remove(&t->sleepelem);
-            t->sleepticks = 0;
+            t->wake_tick = 0;
             thread_unblock(t);            
         }            
     }    
@@ -459,7 +460,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
     strlcpy (t->name, name, sizeof t->name);
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
-    t->sleepticks = 0;
+    t->wake_tick = 0;
     t->magic = THREAD_MAGIC;
 
     old_level = intr_disable ();
@@ -578,11 +579,16 @@ uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
 
 /* Sleep the current thread */
-void thread_sleep(int64_t ticks)
+void thread_sleep(int64_t wake_tick)
 {
     /* Put the current thread on the sleeplist and block it. */
+
+    enum intr_level old = intr_disable();
+    
     struct thread *t = thread_current ();
-    t->sleepticks = ticks;
+    t->wake_tick = wake_tick;
     list_push_back (&sleeping_list, &t->sleepelem);
     thread_block();
+
+    intr_set_level(old);
 }
