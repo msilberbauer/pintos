@@ -74,6 +74,8 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+bool thread_order_function(const struct list_elem *a,const struct list_elem *b, void *aux);
+bool sleep_order_function(const struct list_elem *a,const struct list_elem *b, void *aux);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -142,20 +144,71 @@ void thread_tick (int64_t nowtick)
     for (e = list_begin (&sleeping_list); e != list_end (&sleeping_list);
            e = list_next (e))
     {
-        struct thread *t = list_entry (e, struct thread, sleepelem);
+        struct thread *p = list_entry (e, struct thread, sleepelem);
 
-        if(nowtick >= t->wake_tick)
+        if(nowtick >= p->wake_tick)
         {
             /* Remove from sleeping list */
-            list_remove(&t->sleepelem);
-            t->wake_tick = 0;
-            thread_unblock(t);            
-        }            
-    }    
+            list_pop_front(&sleeping_list);
+
+
+            /*
+            list_remove(&p->sleepelem);
+            */
+                
+            /*
+            struct list_elem *e = list_max(&sleeping_list, &sleep_order_function, NULL);
+            list_remove(&p->sleepelem);
+            struct thread *p = list_entry (e, struct thread, sleepelem);
+            */
+            
+            p->wake_tick = 0;
+            thread_unblock(p);            
+        }else
+        {
+            /* There can be no more threads to be woken up
+               because the sleeping list is ordered */
+            break;
+        }
+    }
+
+    
+    
+    /* Check the highest priority thread on the ready queue and then
+       compare it with the current running thread. If it is higher
+       then the current thread yields */
+    
+    int current_priority = t->priority;
+
+    if(!list_empty(&ready_list))
+    {
+
+        /*
+        e = list_front (&ready_list);
+        struct thread *p = list_entry (e, struct thread, elem);
+
+        if(current_priority < p->priority)
+        {
+            thread_yield();
+        }
+        */
+
+        
+        e = list_max(&ready_list, &thread_order_function, NULL);
+        struct thread *p = list_entry (e, struct thread, elem);
+
+        if(current_priority < p->priority)
+        {
+            intr_yield_on_return();
+        }
+        
+    }
     
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
-        intr_yield_on_return ();
+    {
+        intr_yield_on_return();
+    }
 }
 
 /* Prints thread statistics. */
@@ -217,6 +270,15 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     /* Add to run queue. */
     thread_unblock (t);
 
+    /* If the new created thread has a higher priority
+       than the current running thread, the current running thread
+       yields */
+    if(t->priority > thread_current()->priority)
+    {
+        thread_yield();
+    }
+
+    
     return tid;
 }
 
@@ -235,6 +297,19 @@ void thread_block (void)
     schedule ();
 }
 
+/* An order function for the ready list which orders the threads
+   with the highest priority first and the lowest priority last*/
+bool thread_order_function(const struct list_elem *a,
+                           const struct list_elem *b,
+                           void *aux UNUSED)
+{
+    struct thread *t1 = list_entry (a, struct thread, elem);
+    struct thread *t2 = list_entry (b, struct thread, elem);
+
+    return t1->priority > t2->priority;
+}
+
+
 /* Transitions a blocked thread T to the ready-to-run state.
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
@@ -251,7 +326,8 @@ void thread_unblock (struct thread *t)
 
     old_level = intr_disable ();
     ASSERT (t->status == THREAD_BLOCKED);
-    list_push_back (&ready_list, &t->elem);
+    //list_push_back (&ready_list, &t->elem);
+    list_insert_ordered(&ready_list, &t->elem, thread_order_function, NULL);
     t->status = THREAD_READY;
     intr_set_level (old_level);
 }
@@ -317,7 +393,11 @@ void thread_yield (void)
 
     old_level = intr_disable ();
     if (cur != idle_thread)
-        list_push_back (&ready_list, &cur->elem);
+    {
+        //list_push_back (&ready_list, &cur->elem);
+        list_insert_ordered(&ready_list, &cur->elem, thread_order_function, NULL);
+    }
+    
     cur->status = THREAD_READY;
     schedule ();
     intr_set_level (old_level);
@@ -342,7 +422,20 @@ void thread_foreach (thread_action_func *func, void *aux)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority (int new_priority)
 {
-    thread_current ()->priority = new_priority;
+    // Make checks for valid priority
+
+    
+    thread_current()->priority = new_priority;
+
+
+    struct list_elem *e = list_max(&ready_list, thread_order_function, NULL);
+    struct thread *p = list_entry (e, struct thread, elem);
+
+    if(new_priority < p->priority)
+    {
+        thread_yield();
+    }
+    
 }
 
 /* Returns the current thread's priority. */
@@ -488,9 +581,18 @@ static void *alloc_frame (struct thread *t, size_t size)
 static struct thread *next_thread_to_run (void)
 {
     if (list_empty (&ready_list))
+    {
         return idle_thread;
+    }
     else
-        return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    {
+        //return list_entry (list_pop_front (&ready_list), struct thread, elem);
+        
+        struct list_elem *e = list_max(&ready_list, thread_order_function, NULL);
+        list_remove(e);
+        
+        return list_entry (e, struct thread, elem);
+    }
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -577,6 +679,17 @@ static tid_t allocate_tid (void)
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
 
+/* An order function for the sleeping list which orders the threads
+   with the highest wake_tick last and the lowest wake_tick first */
+bool sleep_order_function(const struct list_elem *a,
+                          const struct list_elem *b,
+                          void *aux UNUSED)
+{
+    struct thread *t1 = list_entry (a, struct thread, sleepelem);
+    struct thread *t2 = list_entry (b, struct thread, sleepelem);
+
+    return t1->wake_tick < t2->wake_tick;
+}
 
 /* Sleep the current thread */
 void thread_sleep(int64_t wake_tick)
@@ -587,7 +700,9 @@ void thread_sleep(int64_t wake_tick)
     
     struct thread *t = thread_current ();
     t->wake_tick = wake_tick;
-    list_push_back (&sleeping_list, &t->sleepelem);
+    // list_push_back (&sleeping_list, &t->sleepelem);
+    list_insert_ordered(&sleeping_list, &t->sleepelem, sleep_order_function, NULL);
+    
     thread_block();
 
     intr_set_level(old);
