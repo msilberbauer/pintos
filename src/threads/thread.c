@@ -138,7 +138,8 @@ void thread_tick (int64_t nowtick)
     else
         kernel_ticks++;
 
-    /* Check sleeplist and wake up threads with ending sleeptimer */
+    
+    /* Check the sleeping_list and wake up threads with ending sleeptimer */
     struct list_elem *e;
 
     for (e = list_begin (&sleeping_list); e != list_end (&sleeping_list);
@@ -151,17 +152,6 @@ void thread_tick (int64_t nowtick)
             /* Remove from sleeping list */
             list_pop_front(&sleeping_list);
 
-
-            /*
-            list_remove(&p->sleepelem);
-            */
-                
-            /*
-            struct list_elem *e = list_max(&sleeping_list, &sleep_order_function, NULL);
-            list_remove(&p->sleepelem);
-            struct thread *p = list_entry (e, struct thread, sleepelem);
-            */
-            
             p->wake_tick = 0;
             thread_unblock(p);            
         }else
@@ -174,34 +164,20 @@ void thread_tick (int64_t nowtick)
 
     
     
-    /* Check the highest priority thread on the ready queue and then
+    /* Get the highest priority thread on the ready queue and then
        compare it with the current running thread. If it is higher
-       then the current thread yields */
-    
+       priority then the current running thread yields */    
     int current_priority = t->priority;
 
     if(!list_empty(&ready_list))
     {
-
-        /*
-        e = list_front (&ready_list);
-        struct thread *p = list_entry (e, struct thread, elem);
-
-        if(current_priority < p->priority)
-        {
-            thread_yield();
-        }
-        */
-
+        struct list_elem *front = list_front (&ready_list);
+        struct thread *p = list_entry (front, struct thread, elem);
         
-        e = list_max(&ready_list, &thread_order_function, NULL);
-        struct thread *p = list_entry (e, struct thread, elem);
-
         if(current_priority < p->priority)
         {
             intr_yield_on_return();
-        }
-        
+        }        
     }
     
     /* Enforce preemption. */
@@ -326,7 +302,6 @@ void thread_unblock (struct thread *t)
 
     old_level = intr_disable ();
     ASSERT (t->status == THREAD_BLOCKED);
-    //list_push_back (&ready_list, &t->elem);
     list_insert_ordered(&ready_list, &t->elem, thread_order_function, NULL);
     t->status = THREAD_READY;
     intr_set_level (old_level);
@@ -394,7 +369,6 @@ void thread_yield (void)
     old_level = intr_disable ();
     if (cur != idle_thread)
     {
-        //list_push_back (&ready_list, &cur->elem);
         list_insert_ordered(&ready_list, &cur->elem, thread_order_function, NULL);
     }
     
@@ -422,20 +396,28 @@ void thread_foreach (thread_action_func *func, void *aux)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority (int new_priority)
 {
-    // Make checks for valid priority
-
-    
-    thread_current()->priority = new_priority;
-
-
-    struct list_elem *e = list_max(&ready_list, thread_order_function, NULL);
-    struct thread *p = list_entry (e, struct thread, elem);
-
-    if(new_priority < p->priority)
+    if(new_priority < PRI_MIN || new_priority > PRI_MAX)
     {
-        thread_yield();
+        thread_current()->priority = PRI_DEFAULT;
+    }else
+    {        
+        thread_current()->priority = new_priority;
     }
-    
+        
+
+    /* Now that the current running thread changed priority
+       we check whether there is a thread on the ready list with
+       a higher priority, if so the current running thread yields */
+    if(!list_empty(&ready_list))
+    {
+        struct list_elem *front = list_front (&ready_list);
+        struct thread *t = list_entry (front, struct thread, elem);
+
+        if(new_priority < t->priority)
+        {
+            thread_yield();
+        }
+    }    
 }
 
 /* Returns the current thread's priority. */
@@ -586,12 +568,9 @@ static struct thread *next_thread_to_run (void)
     }
     else
     {
-        //return list_entry (list_pop_front (&ready_list), struct thread, elem);
-        
-        struct list_elem *e = list_max(&ready_list, thread_order_function, NULL);
-        list_remove(e);
-        
-        return list_entry (e, struct thread, elem);
+        /* The front thread on the ready list is the one with the
+           highest priority */
+        return list_entry (list_pop_front (&ready_list), struct thread, elem);
     }
 }
 
@@ -700,7 +679,6 @@ void thread_sleep(int64_t wake_tick)
     
     struct thread *t = thread_current ();
     t->wake_tick = wake_tick;
-    // list_push_back (&sleeping_list, &t->sleepelem);
     list_insert_ordered(&sleeping_list, &t->sleepelem, sleep_order_function, NULL);
     
     thread_block();
