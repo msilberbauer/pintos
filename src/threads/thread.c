@@ -166,7 +166,8 @@ void thread_tick (int64_t nowtick)
     
     /* Get the highest priority thread on the ready queue and then
        compare it with the current running thread. If it is higher
-       priority then the current running thread yields */    
+       priority then the current running thread yields */;
+    
     int current_priority = t->priority;
 
     if(!list_empty(&ready_list))
@@ -179,6 +180,8 @@ void thread_tick (int64_t nowtick)
             intr_yield_on_return();
         }        
     }
+
+
     
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
@@ -246,14 +249,14 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     /* Add to run queue. */
     thread_unblock (t);
 
-    /* If the new created thread has a higher priority
+    
+    /* If the unblocked thread has a higher priority
        than the current running thread, the current running thread
        yields */
     if(t->priority > thread_current()->priority)
     {
         thread_yield();
     }
-
     
     return tid;
 }
@@ -303,8 +306,10 @@ void thread_unblock (struct thread *t)
     old_level = intr_disable ();
     ASSERT (t->status == THREAD_BLOCKED);
     list_insert_ordered(&ready_list, &t->elem, thread_order_function, NULL);
-    t->status = THREAD_READY;
+    t->status = THREAD_READY;    
     intr_set_level (old_level);
+
+    
 }
 
 /* Returns the name of the running thread. */
@@ -682,6 +687,5 @@ void thread_sleep(int64_t wake_tick)
     list_insert_ordered(&sleeping_list, &t->sleepelem, sleep_order_function, NULL);
     
     thread_block();
-
     intr_set_level(old);
 }
