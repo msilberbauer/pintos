@@ -162,27 +162,7 @@ void thread_tick (int64_t nowtick)
         }
     }
 
-    
-    
-    /* Get the highest priority thread on the ready queue and then
-       compare it with the current running thread. If it is higher
-       priority then the current running thread yields */;
-    
-    int current_priority = t->priority;
 
-    if(!list_empty(&ready_list))
-    {
-        struct list_elem *front = list_front (&ready_list);
-        struct thread *p = list_entry (front, struct thread, elem);
-        
-        if(current_priority < p->priority)
-        {
-            intr_yield_on_return();
-        }        
-    }
-
-
-    
     /* Enforce preemption. */
     if (++thread_ticks >= TIME_SLICE)
     {
@@ -401,6 +381,8 @@ void thread_foreach (thread_action_func *func, void *aux)
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority (int new_priority)
 {
+    int old = thread_current()->priority;
+    
     if(new_priority < PRI_MIN || new_priority > PRI_MAX)
     {
         thread_current()->priority = PRI_DEFAULT;
@@ -410,19 +392,23 @@ void thread_set_priority (int new_priority)
     }
         
 
-    /* Now that the current running thread changed priority
+    /* If the current running thread lowered its priority 
        we check whether there is a thread on the ready list with
        a higher priority, if so the current running thread yields */
-    if(!list_empty(&ready_list))
+    if(old > new_priority)
     {
-        struct list_elem *front = list_front (&ready_list);
-        struct thread *t = list_entry (front, struct thread, elem);
-
-        if(new_priority < t->priority)
+        if(!list_empty(&ready_list))
         {
-            thread_yield();
-        }
-    }    
+            struct list_elem *front = list_front (&ready_list);
+            struct thread *t = list_entry (front, struct thread, elem);
+
+            if(new_priority < t->priority)
+            {
+                thread_yield();
+            }
+        }    
+    }
+    
 }
 
 /* Returns the current thread's priority. */
