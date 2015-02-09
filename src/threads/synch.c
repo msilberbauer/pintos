@@ -127,8 +127,15 @@ void sema_up (struct semaphore *sema)
        than the current running thread, the current running thread
        yields */
     if(priority > thread_current()->priority)
-    {
-        thread_yield();
+    {        
+        if (intr_context ())
+        {
+            intr_yield_on_return ();
+        }
+        else
+        {
+            thread_yield();
+        }
     }
 
     intr_set_level (old_level);
@@ -201,13 +208,74 @@ void lock_init (struct lock *lock)
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 void lock_acquire (struct lock *lock)
-{
+{    
     ASSERT (lock != NULL);
     ASSERT (!intr_context ());
     ASSERT (!lock_held_by_current_thread (lock));
 
+    enum intr_level old = intr_disable();
+    
+    struct thread *cur = thread_current();
+    
+    /* Priority donation */
+    if(lock->holder != NULL && lock->holder->priority < cur->priority)
+    { 
+        lock->holder->priority = cur->priority;
+
+        
+    }
+
+    // possibly also look at the locks semaphore and boost the threads there
+    /*        
+    struct list_elem *e;
+
+    for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
+         e = list_next (e))
+    {
+        struct thread *t = list_entry (e, struct thread, elem);
+
+        if(t->priority < cur->priority)
+        {
+            t->priority = cur->priority;
+        }
+    }
+    */
+
+    /*
+    struct list_elem *e;
+
+    int max = cur->priority;
+
+    for (e = list_begin (&lock->semaphore.waiters); e != list_end (&lock->semaphore.waiters);
+         e = list_next (e))
+    {
+        struct thread *t = list_entry (e, struct thread, elem);
+
+        if(t->priority > max)
+        {            
+            max = t->priority;
+        }
+    }
+
+    thread_set_priority (max); 
+    */
+
+
+
+
+
+
+
+
+    
     sema_down (&lock->semaphore);
-    lock->holder = thread_current ();
+    
+    /* Lock acquired at this point */
+    
+    lock->holder = cur;
+    list_push_back (&cur->locks, &lock->lockelem);
+
+    intr_set_level(old);  
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -236,11 +304,75 @@ bool lock_try_acquire (struct lock *lock)
    handler. */
 void lock_release (struct lock *lock)
 {
+    enum intr_level old = intr_disable();
+    
     ASSERT (lock != NULL);
     ASSERT (lock_held_by_current_thread (lock));
 
-    lock->holder = NULL;
+    struct thread *cur = thread_current();
+    
+    lock->holder = NULL;    
     sema_up (&lock->semaphore);
+    
+    list_remove(&lock->lockelem);
+
+    // thread_set_priority (cur->original_priority);
+
+
+
+    
+    cur->priority = cur->original_priority;
+    
+    if(list_empty(&cur->locks))
+    {
+        cur->priority = cur->original_priority;
+    }
+    /*else
+    {
+        struct list_elem *e;
+
+        int max_priority = 0;
+    
+        for (e = list_begin (&cur->locks); e != list_end (&cur->locks);
+           e = list_next (e))
+        {
+            struct lock *l = list_entry (e, struct lock, lockelem);
+
+            struct list_elem *ee;
+         
+            for (ee = list_begin (&l->semaphore.waiters); ee != list_end (&l->semaphore.waiters);
+                 ee = list_next (ee))
+            {
+                struct thread *t = list_entry (ee, struct thread, elem);
+                
+
+                if(max_priority < t->priority)
+                {
+                    max_priority = t->priority;
+                    
+                }
+            }           
+        }
+
+        
+        if(max_priority > cur->priority)
+        {
+            thread_set_priority (max_priority);  
+        }
+        
+        
+              
+         
+    }
+    */
+    
+    
+
+  
+    
+     
+   
+    intr_set_level(old);  
 }
 
 /* Returns true if the current thread holds LOCK, false

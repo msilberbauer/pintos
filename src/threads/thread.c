@@ -99,6 +99,7 @@ void thread_init (void)
     list_init (&all_list);
     list_init (&sleeping_list);
 
+
     /* Set up a thread structure for the running thread. */
     initial_thread = running_thread ();
     init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -386,9 +387,11 @@ void thread_set_priority (int new_priority)
     if(new_priority < PRI_MIN || new_priority > PRI_MAX)
     {
         thread_current()->priority = PRI_DEFAULT;
+        thread_current()->original_priority = PRI_DEFAULT;
     }else
     {        
         thread_current()->priority = new_priority;
+        thread_current()->original_priority = new_priority;
     }
         
 
@@ -526,6 +529,8 @@ static void init_thread (struct thread *t, const char *name, int priority)
     strlcpy (t->name, name, sizeof t->name);
     t->stack = (uint8_t *) t + PGSIZE;
     t->priority = priority;
+    t->original_priority = priority;
+    list_init (&t->locks);
     t->wake_tick = 0;
     t->magic = THREAD_MAGIC;
 
