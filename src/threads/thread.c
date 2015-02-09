@@ -379,39 +379,70 @@ void thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+
+/* Donate *t a new priority. */
+void donate(struct thread *t, int new_priority)
+{
+    ASSERT (t->priority < new_priority);
+    ASSERT (t != thread_current());
+    
+    t->priority = new_priority;
+    
+    /* A thread on the ready queue had its priority changed.
+       We must ensure that the ready list is still ordered */
+    list_remove(&t->elem);
+    list_insert_ordered(&ready_list, &t->elem, thread_order_function, NULL);        
+}
+
+
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority (int new_priority)
 {
-    int old = thread_current()->priority;
-    
+    thread_other_set_priority (thread_current(), new_priority);
+}
+
+/* Sets t's priority to new_priority. */
+void thread_other_set_priority (struct thread *t, int new_priority)
+{
+    int old = t->priority;
     if(new_priority < PRI_MIN || new_priority > PRI_MAX)
     {
-        thread_current()->priority = PRI_DEFAULT;
-        thread_current()->original_priority = PRI_DEFAULT;
+        t->priority = PRI_DEFAULT;
+        t->original_priority = PRI_DEFAULT;
     }else
-    {        
-        thread_current()->priority = new_priority;
-        thread_current()->original_priority = new_priority;
+    {
+        t->priority = new_priority;
+        t->original_priority = new_priority;
     }
-        
-
-    /* If the current running thread lowered its priority 
+    
+    /* If the current running thread lowered its priority
        we check whether there is a thread on the ready list with
        a higher priority, if so the current running thread yields */
-    if(old > new_priority)
+    if(t == thread_current())
     {
-        if(!list_empty(&ready_list))
+        if(!list_empty(&ready_list) && old > new_priority)
         {
             struct list_elem *front = list_front (&ready_list);
             struct thread *t = list_entry (front, struct thread, elem);
-
             if(new_priority < t->priority)
             {
                 thread_yield();
             }
-        }    
-    }
-    
+        }
+    }else
+    {
+        /* A thread on the ready queue has had its priority changed.
+           We must ensure that the ready list is still ordered. */
+        list_remove(&t->elem);
+        list_insert_ordered(&ready_list, &t->elem, thread_order_function, NULL);
+
+        /* Yield the current thread if the changed thread on the ready
+           queue now has a higher priority*/
+        if(t->priority > thread_current()->priority)
+        {
+            thread_yield();
+        }
+    }    
 }
 
 /* Returns the current thread's priority. */
@@ -531,6 +562,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
     t->priority = priority;
     t->original_priority = priority;
     list_init (&t->locks);
+    t->desiring_lock = NULL;
     t->wake_tick = 0;
     t->magic = THREAD_MAGIC;
 
