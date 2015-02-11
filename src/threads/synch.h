@@ -21,8 +21,9 @@ void sema_self_test (void);
 struct lock 
 {
     struct list_elem lockelem;   /* List element for lock list */
-    struct thread *holder;      /* Thread holding lock (for debugging). */
-    struct semaphore semaphore; /* Binary semaphore controlling access. */
+    struct thread *holder;       /* Thread holding lock (for debugging). */
+    struct semaphore semaphore;  /* Binary semaphore controlling access. */
+    int priority;                /* Priority after donation */
 };
 
 void lock_init (struct lock *);
@@ -41,6 +42,9 @@ void cond_init (struct condition *);
 void cond_wait (struct condition *, struct lock *);
 void cond_signal (struct condition *, struct lock *);
 void cond_broadcast (struct condition *, struct lock *);
+
+bool sema_order_function(const struct list_elem *a,const struct list_elem *b, void *aux);
+bool lock_order_function(const struct list_elem *a,const struct list_elem *b, void *aux);
 
 /* Optimization barrier.
 

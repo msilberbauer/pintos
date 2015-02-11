@@ -189,6 +189,7 @@ void lock_init (struct lock *lock)
     ASSERT (lock != NULL);
 
     lock->holder = NULL;
+    lock->priority = PRI_MIN;
     sema_init (&lock->semaphore, 1);
 }
 
@@ -212,26 +213,26 @@ void lock_acquire (struct lock *lock)
     if(lock->holder != NULL) /* The lock is held by another thread */
     {
         cur->desiring_lock = lock;
-
-        /* Priority donation */
-        // TODO make all this recursive or loop.        
         
-        if(lock->holder->priority < cur->priority)
+        /* Priority donation */
+        struct lock *current_lock = lock;
+        
+        while(current_lock->holder != NULL
+              && current_lock->holder->priority < cur->priority)
         {
-            donate(lock->holder,cur->priority);
-        }
+            current_lock->priority = cur->priority;
+            donate(current_lock->holder,cur->priority);
 
-        /* The thread who is holding the lock is blocked because
-           it is waiting for another lock */
-        if(lock->holder->desiring_lock != NULL)
-        {
-            if(lock->holder->desiring_lock->holder->priority < cur->priority)
+            /* Check whether the thread who is holding the lock is blocked
+               because it is waiting for another lock, if so we loop
+               and donate */
+            if(current_lock->holder->desiring_lock != NULL)
             {
-               donate(lock->holder->desiring_lock->holder->priority, cur->priority);
-            }
-        }        
+                current_lock = current_lock->holder->desiring_lock;
+            } 
+        } 
     }
-   
+    
     
     sema_down (&lock->semaphore);
     
@@ -239,7 +240,9 @@ void lock_acquire (struct lock *lock)
     
     lock->holder = cur;
     cur->desiring_lock = NULL;
-    list_push_back (&cur->locks, &lock->lockelem);
+    lock->priority = cur->priority;
+    list_insert_ordered(&cur->locks, &lock->lockelem, lock_order_function, NULL);
+
 
     intr_set_level(old);  
 }
@@ -277,18 +280,25 @@ void lock_release (struct lock *lock)
 
     struct thread *cur = thread_current();
     
-    lock->holder = NULL;    
+    lock->holder = NULL;
+    lock->priority = PRI_MIN;
     sema_up (&lock->semaphore);
     
     list_remove(&lock->lockelem);
 
     if(list_empty(&cur->locks)) 
     {
-        /* Restore the thread's original priority because it hold no more locks */
+        /* Restore the thread's original priority because it holds no more locks */
         thread_set_priority (cur->original_priority);
     }else
-    {
-        // TODO
+    {       
+        
+        /* Go through the current running thread's locks list and
+           boost its priority to highest priority lock */
+        list_sort(&cur->locks, lock_order_function, NULL);
+        struct lock *l = list_entry (list_front(&cur->locks), struct lock, lockelem);
+
+        donate(cur,l->priority); 
     }
    
     intr_set_level(old);  
@@ -320,6 +330,19 @@ void cond_init (struct condition *cond)
 
     list_init (&cond->waiters);
 }
+
+
+/* Orders locks according their priority */
+bool lock_order_function(const struct list_elem *a,
+                         const struct list_elem *b,
+                         void *aux UNUSED)
+{
+    struct lock *l1 = list_entry (a, struct lock, lockelem);
+    struct lock *l2 = list_entry (b, struct lock, lockelem);
+
+    return l1->priority > l2->priority;
+}
+
 
 /* Orders semaphores according to the front thread in their thread list */
 bool sema_order_function(const struct list_elem *a,
