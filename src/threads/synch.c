@@ -214,7 +214,6 @@ void lock_acquire (struct lock *lock)
     {
         cur->desiring_lock = lock;
         
-        /* Priority donation */
         struct lock *current_lock = lock;
         
         while(current_lock->holder != NULL
@@ -230,7 +229,8 @@ void lock_acquire (struct lock *lock)
             {
                 current_lock = current_lock->holder->desiring_lock;
             } 
-        } 
+        }
+        
     }
     
     
@@ -241,8 +241,9 @@ void lock_acquire (struct lock *lock)
     lock->holder = cur;
     cur->desiring_lock = NULL;
     lock->priority = cur->priority;
-    list_insert_ordered(&cur->locks, &lock->lockelem, lock_order_function, NULL);
 
+    
+    list_insert_ordered(&cur->locks, &lock->lockelem, lock_order_function, NULL);
 
     intr_set_level(old);  
 }
@@ -284,6 +285,7 @@ void lock_release (struct lock *lock)
     lock->priority = PRI_MIN;
     sema_up (&lock->semaphore);
     
+    
     list_remove(&lock->lockelem);
 
     if(list_empty(&cur->locks)) 
@@ -300,6 +302,7 @@ void lock_release (struct lock *lock)
 
         donate(cur,l->priority); 
     }
+    
    
     intr_set_level(old);  
 }

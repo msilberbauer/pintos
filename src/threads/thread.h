@@ -89,6 +89,9 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* The current priority. */
     int original_priority;              /* The priority that the thread has without donation. */
+    int nice;                           /* The nice value, determines how willing the thread
+                                           is to give or take CPU time from/to other threads */
+    int recent_cpu;                     /* How much CPU time the thread has recently had */
     struct list locks;                  /* List of locks currently held */
     struct list_elem allelem;           /* List element for all threads list. */
     struct list_elem sleepelem;         /* List element for sleeping threads list. */
@@ -149,5 +152,12 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+void update_load_avg(void);
+
+void update_all_recent_cpu (void);
+void calculate_recent_cpu(struct thread *t, void *aux);
+
+void update_all_priority (void);
+void calculate_priority(struct thread *t, void *aux);
 
 #endif /* threads/thread.h */
