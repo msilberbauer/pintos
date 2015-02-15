@@ -288,6 +288,7 @@ void lock_release (struct lock *lock)
     
     list_remove(&lock->lockelem);
 
+
     if(list_empty(&cur->locks)) 
     {
         /* Restore the thread's original priority because it holds no more locks */
@@ -303,7 +304,6 @@ void lock_release (struct lock *lock)
         donate(cur,l->priority); 
     }
     
-   
     intr_set_level(old);  
 }
 
