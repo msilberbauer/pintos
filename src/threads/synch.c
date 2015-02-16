@@ -282,12 +282,10 @@ void lock_release (struct lock *lock)
     struct thread *cur = thread_current();
     
     lock->holder = NULL;
-    lock->priority = PRI_MIN;
-    sema_up (&lock->semaphore);
-    
+    lock->priority = PRI_MIN;     
     
     list_remove(&lock->lockelem);
-
+    sema_up (&lock->semaphore); 
 
     if(list_empty(&cur->locks)) 
     {
