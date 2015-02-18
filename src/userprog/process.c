@@ -48,6 +48,7 @@ tid_t process_execute (const char *file_name)
    running. */
 static void start_process (void *file_name_)
 {
+    printf("okhi\n");
     char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
@@ -85,6 +86,18 @@ static void start_process (void *file_name_)
    does nothing. */
 int process_wait (tid_t child_tid UNUSED)
 {
+    /* For now, change process_wait() to an infinite loop (one that waits forever).
+       The provided implementation returns immediately. If the user-mode program has
+       not had a chance to run yet, Pintos will then shutdown without running it.
+       Later in this project, you will remove this infinite loop and add synchronization
+       to process_wait() in order to pass test cases.
+       In the next project, you will provide an even better solution.
+    */
+    while(true)
+    {
+            
+    }
+    
     return -1;
 }
 
@@ -118,7 +131,6 @@ void process_exit (void)
 void process_activate (void)
 {
     struct thread *t = thread_current ();
-
     /* Activate thread's page tables. */
     pagedir_activate (t->pagedir);
 
@@ -209,6 +221,7 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
     bool success = false;
     int i;
 
+    
     /* Allocate and activate page directory. */
     t->pagedir = pagedir_create ();
     if (t->pagedir == NULL)
@@ -223,6 +236,7 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
         goto done;
     }
 
+    
     /* Read and verify executable header. */
     if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
             || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -428,7 +442,7 @@ static bool setup_stack (void **esp)
     {
         success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
         if (success)
-            *esp = PHYS_BASE;
+            *esp = PHYS_BASE -12;
         else
             palloc_free_page (kpage);
     }
