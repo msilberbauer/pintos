@@ -4,7 +4,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "filesys/file.c"
+//#include "filesys/file.h"
+//#include "filesys/filesys.h"
 
 
 
@@ -12,6 +13,12 @@
 /* System calls that return a value can do so by modifying the "eax" member of struct intr_frame. */
 
 static void syscall_handler (struct intr_frame *);
+int open (const char *f);
+int write(int fd, const void *buffer, unsigned size);
+int read (int fd, void *buffer, unsigned size);
+void get_arguments(struct intr_frame *f, int *arguments, int n);
+int usr_to_kernel_ptr(const void *vaddr);
+void is_valid_ptr(const void *vaddr);
 
 void syscall_init (void)
 {
@@ -19,9 +26,14 @@ void syscall_init (void)
 }
 
 static void syscall_handler (struct intr_frame *f UNUSED)
-{
+{    
+    int arguments[3];
+
+    is_valid_ptr((const void *)f->esp);
+
     /* The stack pointer points to the systemcallnumber */    
-    int syscallnr = *(f->esp); 
+    int syscallnr = *((int *)f->esp);
+    printf ("A system call: %d\n", syscallnr);
     switch(syscallnr)
     {
        case SYS_HALT :
@@ -43,20 +55,21 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            // Do something
            break;
        case SYS_OPEN :
-           const char *file = *(f->esp+1);
-           return open(file);
+           get_arguments(f,arguments,1);
+           f->eax = open(arguments[0]);
            break;
-       case SYS_FILSIZE :
+       case SYS_FILESIZE :
            // Do something
            break;
        case SYS_READ :
-           // Do something
+           get_arguments(f,arguments,3);
+           arguments[1] = usr_to_kernel_ptr((void *) arguments[1]);
+           f->eax = read(arguments[0], (void*) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_WRITE :
-           int fd = *(f->esp+1);
-           *buffer = *(f->esp+2);
-           unsigned size = *(f->esp+3);
-           f->eax = write(fd, buffer, size);
+           get_arguments(f,arguments,3);
+           arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
+           f->eax = write(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_SEEK :
            // Do something
@@ -105,13 +118,8 @@ int open (const char *file)
             }
         }
     }
-    
-    return -1; // No such file or maximum number of files open
-    
-    
-        
-    // put ind i første ledige plads i file descriptor table.
-    // returner pladsen (fd)
+
+    return -1;
 }
 
 
@@ -145,6 +153,7 @@ int write(int fd, const void *buffer, unsigned size)
     if(fd == STDOUT_FILENO) // fd = 1
     {
         putbuf(buffer,size);
+        return size;
     }else
     {
         struct file *f = thread_current()->fdtable[fd];
@@ -152,6 +161,8 @@ int write(int fd, const void *buffer, unsigned size)
         /* Returns number of bytes written */
         return file_write (f, buffer, size);
     }
+
+    return -1;
 }
 
 
@@ -168,14 +179,14 @@ int read (int fd, void *buffer, unsigned size)
       fd 0 and fd 1. fx writing to files instead of console etc.
      */
 
-    // uint8_t *buf = (uint8_t) *buffer;
+    uint8_t *buf = (uint8_t *) buffer;
     if(fd == STDIN_FILENO) // fd = 0
     {
-        // unsigned i;
-        //for(i = 0; i < size; i++)
-        // {
-        //     buf[i] = input_getc();
-        // }
+        unsigned i;
+        for(i = 0; i < size; i++)
+        {
+            buf[i] = input_getc();
+        }
 
         return size;
     }else
@@ -184,5 +195,48 @@ int read (int fd, void *buffer, unsigned size)
 
         /* Returns number of bytes written */
         return file_read (f, buffer, size);
+    }
+
+    return -1;
+}
+
+
+
+void get_arguments(struct intr_frame *f, int *arguments, int n)
+{
+    int *ptr;
+    int i;
+    for (i = 0; i < n; i++)
+    {
+        ptr = (int *) f->esp+i+1;        
+        arguments[i] = *ptr;
+
+        // Maybe we should check for valid pointer?
+    }
+}
+
+int usr_to_kernel_ptr(const void *vaddr)
+{
+    is_valid_ptr(vaddr);
+
+    void *ptr = pagedir_get_page (thread_current()->pagedir, vaddr);
+
+    if(ptr == NULL) /* If the user address is unmapped */
+    {
+        // Call our exit system call
+    }else
+    {
+        return (int) ptr;
+    }
+}
+
+void is_valid_ptr(const void *vaddr)
+{
+    /* Terminate if process passed an invalid */
+    if(!is_user_vaddr(vaddr))
+    {
+        char *s = "Invalid pointer\n\0";
+        putbuf(s,19);
+        // We should call our own exit system call.
     }
 }

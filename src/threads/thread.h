@@ -4,7 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include "filesys/file.c"
+#include "filesys/file.h"
 
 /* States in a thread's life cycle. */
 enum thread_status

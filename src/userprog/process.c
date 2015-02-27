@@ -27,6 +27,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t process_execute (const char *file_name)
 {
+    /* TODO Support passing arguments. (split file_name) */
     char *fn_copy;
     tid_t tid;
 
@@ -48,7 +49,7 @@ tid_t process_execute (const char *file_name)
    running. */
 static void start_process (void *file_name_)
 {
-    printf("okhi\n");
+    printf("Starting a user process\n");
     char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
