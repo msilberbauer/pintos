@@ -262,6 +262,15 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     sf->eip = switch_entry;
     sf->ebp = 0;
 
+
+    struct process *p = malloc(sizeof(struct process));
+    p->pid = t->tid;
+    p->status = false;
+    p->parent_id = thread_current()->tid;
+    sema_init(&p->wait, 0);
+    list_push_back (&thread_current()->children, &p->elem);
+    t->p = p;
+    
     /* Add to run queue. */
     thread_unblock (t);
 
@@ -738,7 +747,7 @@ static void init_thread (struct thread *t, const char *name, int priority)
     {
         if(t != initial_thread && t != idle_thread)
         {            
-            /* Inherit from parent */
+            /* Inherit from parent*/
             t->nice = thread_current()->nice;
             t->recent_cpu = thread_current()->recent_cpu;
 
@@ -754,8 +763,14 @@ static void init_thread (struct thread *t, const char *name, int priority)
     list_init (&t->locks);
     t->desiring_lock = NULL;
     t->wake_tick = 0;
+        
     t->magic = THREAD_MAGIC;
+    
+    list_init (&t->children);
 
+    
+
+    
     old_level = intr_disable ();
     list_push_back (&all_list, &t->allelem);
     intr_set_level (old_level);

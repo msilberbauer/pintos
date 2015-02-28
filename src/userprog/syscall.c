@@ -4,6 +4,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/process.h"
 //#include "filesys/file.h"
 //#include "filesys/filesys.h"
 
@@ -12,6 +13,8 @@
 
 /* System calls that return a value can do so by modifying the "eax" member of struct intr_frame. */
 
+struct lock filesys_lock;
+
 static void syscall_handler (struct intr_frame *);
 int open (const char *f);
 int write(int fd, const void *buffer, unsigned size);
@@ -19,9 +22,11 @@ int read (int fd, void *buffer, unsigned size);
 void get_arguments(struct intr_frame *f, int *arguments, int n);
 int usr_to_kernel_ptr(const void *vaddr);
 void is_valid_ptr(const void *vaddr);
+void exit(int status);
 
 void syscall_init (void)
 {
+    lock_init(&filesys_lock);
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -29,24 +34,26 @@ static void syscall_handler (struct intr_frame *f UNUSED)
 {    
     int arguments[3];
 
-    is_valid_ptr((const void *)f->esp);
+    //is_valid_ptr((const void *)f->esp);
 
     /* The stack pointer points to the systemcallnumber */    
     int syscallnr = *((int *)f->esp);
-    printf ("A system call: %d\n", syscallnr);
+    //printf ("A system call: %d\n", syscallnr);
     switch(syscallnr)
     {
        case SYS_HALT :
-           // Do something
+           shutdown_power_off();
            break;
        case SYS_EXIT :
-           // Do something
+           get_arguments(f,arguments,1);
+           exit(arguments[0]);
            break;
        case SYS_EXEC :
            // Do something
            break;
        case SYS_WAIT :
-           // Do something
+           get_arguments(f,arguments,1);
+           f->eax = process_wait((tid_t) arguments[0]);
            break;
        case SYS_CREATE :
            // Do something
@@ -62,14 +69,15 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            // Do something
            break;
        case SYS_READ :
-           get_arguments(f,arguments,3);
-           arguments[1] = usr_to_kernel_ptr((void *) arguments[1]);
-           f->eax = read(arguments[0], (void*) arguments[1], (unsigned)arguments[2]);
+           //get_arguments(f,arguments,3);
+           //arguments[1] = usr_to_kernel_ptr((void *) arguments[1]);
+           //f->eax = read(arguments[0], (void*) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_WRITE :
            get_arguments(f,arguments,3);
            arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
            f->eax = write(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
+           //printf ("write done \n");
            break;
        case SYS_SEEK :
            // Do something
@@ -83,23 +91,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
        
       
     }
-
-
-    
-            /*
-    char *hey = "heeeeey\n\0";
-    putbuf(hey,6);
-    
-    
-    printf ("system call!\n");
-    thread_exit ();
-            */
 }
-
-
-
-
-
 
 int open (const char *file)
 {
@@ -156,12 +148,14 @@ int write(int fd, const void *buffer, unsigned size)
         return size;
     }else
     {
+        lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
 
+        lock_release(&filesys_lock);
         /* Returns number of bytes written */
         return file_write (f, buffer, size);
     }
-
+    lock_release(&filesys_lock);
     return -1;
 }
 
@@ -201,7 +195,6 @@ int read (int fd, void *buffer, unsigned size)
 }
 
 
-
 void get_arguments(struct intr_frame *f, int *arguments, int n)
 {
     int *ptr;
@@ -239,4 +232,12 @@ void is_valid_ptr(const void *vaddr)
         putbuf(s,19);
         // We should call our own exit system call.
     }
+}
+
+void exit(int status)
+{
+    struct thread *cur = thread_current();
+    cur->p->status = status;
+    printf("%s: exit(%d)\n", cur->name, cur->p->status);
+    thread_exit();
 }

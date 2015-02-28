@@ -18,8 +18,11 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define MAX_ARG 2
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+struct process *get_child(int child_tid);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -27,7 +30,7 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t process_execute (const char *file_name)
 {
-    /* TODO Support passing arguments. (split file_name) */
+
     char *fn_copy;
     tid_t tid;
 
@@ -38,6 +41,9 @@ tid_t process_execute (const char *file_name)
         return TID_ERROR;
     strlcpy (fn_copy, file_name, PGSIZE);
 
+    char *save_ptr;
+    file_name = strtok_r((char *) file_name, " ", &save_ptr);
+    
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
     if (tid == TID_ERROR)
@@ -49,7 +55,7 @@ tid_t process_execute (const char *file_name)
    running. */
 static void start_process (void *file_name_)
 {
-    printf("Starting a user process\n");
+    //printf("Starting a user process\n");
     char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
@@ -86,28 +92,28 @@ static void start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait (tid_t child_tid UNUSED)
-{
-    /* For now, change process_wait() to an infinite loop (one that waits forever).
-       The provided implementation returns immediately. If the user-mode program has
-       not had a chance to run yet, Pintos will then shutdown without running it.
-       Later in this project, you will remove this infinite loop and add synchronization
-       to process_wait() in order to pass test cases.
-       In the next project, you will provide an even better solution.
-    */
-    while(true)
-    {
-            
-    }
+{     
+    //printf("Waiting for: %d\n", child_tid);
+    struct process *p = get_child(child_tid);
     
-    return -1;
+    /* The parent thread will wait for its child to finish */
+    sema_down(&p->wait);
+
+    
+    /* At this point the child is dead/finished */
+    
+    return p->status;
 }
 
 /* Free the current process's resources. */
 void process_exit (void)
 {
-    struct thread *cur = thread_current ();
+    struct thread *cur = thread_current();
     uint32_t *pd;
 
+    /* Release it's semaphore */
+    sema_up(&cur->p->wait);
+    
     /* Destroy the current process's page directory and switch back
        to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -203,7 +209,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -311,7 +317,7 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
     }
 
     /* Set up stack. */
-    if (!setup_stack (esp))
+    if (!setup_stack (esp, file_name))
         goto done;
 
     /* Start address. */
@@ -433,7 +439,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool setup_stack (void **esp)
+static bool setup_stack (void **esp, const char *file_name)
 {
     uint8_t *kpage;
     bool success = false;
@@ -443,10 +449,76 @@ static bool setup_stack (void **esp)
     {
         success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
         if (success)
-            *esp = PHYS_BASE -12;
+            *esp = PHYS_BASE;
         else
             palloc_free_page (kpage);
     }
+
+    /* We setup the stack */
+    
+    char *token, *save_ptr;
+
+    int argc = 0;
+    /* We count the number of arguments */
+    for (token = strtok_r ((char *) file_name, " ", &save_ptr); token != NULL;
+         token = strtok_r (NULL, " ", &save_ptr))
+    {
+        argc++;       
+    }
+
+    char **argv = malloc(argc * sizeof(char *));
+    int i = 0;
+    for (token = strtok_r ((char *) file_name, " ", &save_ptr); token != NULL;
+         token = strtok_r (NULL, " ", &save_ptr))
+    {
+        
+        *esp = *esp - strlen(token) - 1;
+        argv[i] = *esp;
+        i++;
+
+        memcpy(*esp, token, strlen(token) +1);
+    }
+
+    argv[argc] = 0;
+
+    /* Align to word size (4 bytes) */
+    i = (size_t) *esp % 4;
+    if (i)
+    {
+        *esp -= i;
+        memcpy(*esp, &argv[argc], i);
+    }
+
+    /* Push argv[i] for all i */
+    for (i = argc; i >= 0; i--)
+    {
+        *esp -= sizeof(char *);
+        memcpy(*esp, &argv[i], sizeof(char *));
+    }
+    
+    /* Push the array on the stack */
+    for(i = argc; i >= 0; i--)
+    {
+        *esp = *esp - sizeof(char *);
+        memcpy(*esp, &argv[i], sizeof(char *));
+    }
+
+    /* Push argv on the stack */
+    token = *esp;
+    *esp -= sizeof(char **);
+    memcpy(*esp, &token, sizeof(char **));
+    
+    /* Push argc on the stack */
+    *esp -= sizeof(int);
+    memcpy(*esp, &argc, sizeof(int));
+
+    /* Push fake return address on the stack */
+    *esp -= sizeof(void *);
+    memcpy(*esp, &argv[argc], sizeof(void *));
+
+   
+    free(argv);
+    
     return success;
 }
 
@@ -467,4 +539,23 @@ static bool install_page (void *upage, void *kpage, bool writable)
        address, then map our page there. */
     return (pagedir_get_page (t->pagedir, upage) == NULL
             && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
+
+struct process *get_child(int child_id)
+{
+    struct thread *t = thread_current();
+
+    struct list_elem *e;
+
+    for (e = list_begin (&t->children); e != list_end (&t->children);
+            e = list_next (e))
+    {
+        
+        struct process *p = list_entry (e, struct process, elem);
+
+        if(p->pid == child_id)
+        {
+            return p;
+        }
+    }
 }
