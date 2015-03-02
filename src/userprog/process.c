@@ -31,6 +31,7 @@ struct process *get_child(int child_tid);
 tid_t process_execute (const char *file_name)
 {
 
+    // printf("ssssssss\n");
     char *fn_copy;
     tid_t tid;
 
@@ -55,10 +56,11 @@ tid_t process_execute (const char *file_name)
    running. */
 static void start_process (void *file_name_)
 {
-    //printf("Starting a user process\n");
+    // printf("Starting a user process HERY %s HERY\n", file_name_);
     char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
+
 
     /* Initialize interrupt frame and load executable. */
     memset (&if_, 0, sizeof if_);
@@ -67,8 +69,13 @@ static void start_process (void *file_name_)
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load (file_name, &if_.eip, &if_.esp);
 
+
+    /* Get the name of the first argument (the actual file_name) */
+    char *save_ptr;
+    char *actual_file_name = strtok_r((char *) file_name, " ", &save_ptr);
+    
     /* If load failed, quit. */
-    palloc_free_page (file_name);
+    palloc_free_page (actual_file_name);
     if (!success)
         thread_exit ();
 
@@ -236,10 +243,19 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
     process_activate ();
 
     /* Open executable file. */
-    file = filesys_open (file_name);
+
+
+    /* Get the name of the first argument (the actual file_name) */
+    char *actual_file_name = (char *) malloc((strlen(file_name)+1) * sizeof(char));
+    memcpy(actual_file_name, file_name, strlen(file_name) +1);
+    
+    char *save_ptr;
+    actual_file_name = strtok_r((char *) actual_file_name, " ", &save_ptr);
+
+    file = filesys_open (actual_file_name);
     if (file == NULL)
     {
-        printf ("load: %s: open failed\n", file_name);
+        printf ("load: %s: open failed\n", actual_file_name);
         goto done;
     }
 
@@ -455,21 +471,29 @@ static bool setup_stack (void **esp, const char *file_name)
     }
 
     /* We setup the stack */
+
+    //printf("%s FILE_NAME",file_name);
+    char *file_name2 = (char *) malloc((strlen(file_name)+1) * sizeof(char));
+    memcpy(file_name2, file_name, strlen(file_name) +1);
+
     
-    char *token, *save_ptr;
+    char *token;
+    char *save_ptr;
 
     int argc = 0;
     /* We count the number of arguments */
-    for (token = strtok_r ((char *) file_name, " ", &save_ptr); token != NULL;
+    for (token = strtok_r ((char *) file_name2, " ", &save_ptr); token != NULL;
          token = strtok_r (NULL, " ", &save_ptr))
     {
+        // printf("%s mumumummu",token);
         argc++;       
     }
 
+    char *save_ptr2;
     char **argv = malloc(argc * sizeof(char *));
     int i = 0;
-    for (token = strtok_r ((char *) file_name, " ", &save_ptr); token != NULL;
-         token = strtok_r (NULL, " ", &save_ptr))
+    for (token = strtok_r ((char *) file_name, " ", &save_ptr2); token != NULL;
+         token = strtok_r (NULL, " ", &save_ptr2))
     {
         
         *esp = *esp - strlen(token) - 1;

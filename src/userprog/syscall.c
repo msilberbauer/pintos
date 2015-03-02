@@ -18,11 +18,15 @@ struct lock filesys_lock;
 static void syscall_handler (struct intr_frame *);
 int open (const char *f);
 int write(int fd, const void *buffer, unsigned size);
+int filesize(int fd);
 int read (int fd, void *buffer, unsigned size);
 void get_arguments(struct intr_frame *f, int *arguments, int n);
 int usr_to_kernel_ptr(const void *vaddr);
 void is_valid_ptr(const void *vaddr);
 void exit(int status);
+bool create(const char *file, unsigned initial_size);
+void close(int fd);
+void valid_fd(int fd);
 
 void syscall_init (void)
 {
@@ -34,11 +38,11 @@ static void syscall_handler (struct intr_frame *f UNUSED)
 {    
     int arguments[3];
 
-    //is_valid_ptr((const void *)f->esp);
+    is_valid_ptr((const void *)f->esp);
 
     /* The stack pointer points to the systemcallnumber */    
     int syscallnr = *((int *)f->esp);
-    //printf ("A system call: %d\n", syscallnr);
+//    printf ("A system call: %d\n", syscallnr);
     switch(syscallnr)
     {
        case SYS_HALT :
@@ -46,6 +50,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            break;
        case SYS_EXIT :
            get_arguments(f,arguments,1);
+           /* TODO close alle filer */
            exit(arguments[0]);
            break;
        case SYS_EXEC :
@@ -56,28 +61,31 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            f->eax = process_wait((tid_t) arguments[0]);
            break;
        case SYS_CREATE :
-           // Do something
+           get_arguments(f,arguments,2);
+           arguments[0] = usr_to_kernel_ptr((const char *) arguments[0]);
+           f->eax = create((const char *) arguments[0],(unsigned) arguments[1]);
            break;
        case SYS_REMOVE :
            // Do something
            break;
        case SYS_OPEN :
            get_arguments(f,arguments,1);
+           arguments[0] = usr_to_kernel_ptr((const char *) arguments[0]);
            f->eax = open(arguments[0]);
            break;
        case SYS_FILESIZE :
-           // Do something
+           get_arguments(f,arguments,1);
+           f->eax = filesize(arguments[0]);
            break;
        case SYS_READ :
-           //get_arguments(f,arguments,3);
-           //arguments[1] = usr_to_kernel_ptr((void *) arguments[1]);
-           //f->eax = read(arguments[0], (void*) arguments[1], (unsigned)arguments[2]);
+           get_arguments(f,arguments,3);
+           arguments[1] = usr_to_kernel_ptr((void *) arguments[1]);
+           f->eax = read(arguments[0], (void*) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_WRITE :
            get_arguments(f,arguments,3);
            arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
            f->eax = write(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
-           //printf ("write done \n");
            break;
        case SYS_SEEK :
            // Do something
@@ -86,8 +94,11 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            // Do something
            break;
        case SYS_CLOSE :
-           // Do something
+           get_arguments(f,arguments,1);
+           close(arguments[0]);
            break;
+       
+           
        
       
     }
@@ -136,12 +147,19 @@ int open (const char *file)
    confusing both human readers and our grading scripts. */
 int write(int fd, const void *buffer, unsigned size)
 {
-    /* Maybe do checks on arguments */
-    
+    valid_fd(fd);
+    /* Maybe do more checks on arguments */
+
     /*
       might cause problems if it is possible to change the meaning of
       fd 0 and fd 1. fx writing to files instead of console etc.
      */  
+        
+    if(fd == STDIN_FILENO) /* Can't write to stdin */
+    {
+        return -1;
+    }
+    
     if(fd == STDOUT_FILENO) // fd = 1
     {
         putbuf(buffer,size);
@@ -166,8 +184,10 @@ int write(int fd, const void *buffer, unsigned size)
    Fd 0 reads from the keyboard using input_getc(). */
 int read (int fd, void *buffer, unsigned size) 
 {
-    /* Maybe do checks on arguments */
+    valid_fd(fd);
     
+    /* Maybe do more checks on arguments */
+
     /*
       might cause problems if it is possible to change the meaning of
       fd 0 and fd 1. fx writing to files instead of console etc.
@@ -183,7 +203,13 @@ int read (int fd, void *buffer, unsigned size)
         }
 
         return size;
-    }else
+    }
+
+    if(fd == STDOUT_FILENO) /* Can't read from stdout */
+    {
+        return -1;
+    }
+    else
     {
         struct file *f = thread_current()->fdtable[fd];
 
@@ -201,22 +227,23 @@ void get_arguments(struct intr_frame *f, int *arguments, int n)
     int i;
     for (i = 0; i < n; i++)
     {
-        ptr = (int *) f->esp+i+1;        
+        ptr = (int *) f->esp+i+1;
+        is_valid_ptr(ptr);
         arguments[i] = *ptr;
-
-        // Maybe we should check for valid pointer?
     }
+    
 }
 
 int usr_to_kernel_ptr(const void *vaddr)
 {
+    
     is_valid_ptr(vaddr);
 
     void *ptr = pagedir_get_page (thread_current()->pagedir, vaddr);
 
     if(ptr == NULL) /* If the user address is unmapped */
     {
-        // Call our exit system call
+        exit(-1);
     }else
     {
         return (int) ptr;
@@ -225,12 +252,10 @@ int usr_to_kernel_ptr(const void *vaddr)
 
 void is_valid_ptr(const void *vaddr)
 {
-    /* Terminate if process passed an invalid */
-    if(!is_user_vaddr(vaddr))
+    /* Terminate if process passed an invalid address */
+    if(!is_user_vaddr(vaddr) || vaddr < 0x08048000) /* Bottom of user program */
     {
-        char *s = "Invalid pointer\n\0";
-        putbuf(s,19);
-        // We should call our own exit system call.
+        exit(-1);
     }
 }
 
@@ -240,4 +265,51 @@ void exit(int status)
     cur->p->status = status;
     printf("%s: exit(%d)\n", cur->name, cur->p->status);
     thread_exit();
+}
+
+
+bool create(const char *file, unsigned initial_size)
+{
+    if(file == NULL)
+    {
+        exit(-1);
+        return false; /* never reached */
+    }
+    else
+    {
+        return filesys_create(file,initial_size);
+    }
+}
+
+void close(int fd)
+{
+    valid_fd(fd);
+
+    if(thread_current()->fdtable[fd] != NULL)
+    {
+        file_close(thread_current()->fdtable[fd]);
+        thread_current()->fdtable[fd] = NULL;
+    }   
+    
+}
+
+int filesize(int fd)
+{
+    valid_fd(fd);
+    
+    if(thread_current()->fdtable[fd] != NULL)
+    {
+        return file_length(thread_current()->fdtable[fd]);
+    }
+
+    return -1;
+}
+
+
+void valid_fd(int fd)
+{
+    if(fd > 9) /* Max allowed files opened */
+    {
+        exit(-1);
+    }
 }
