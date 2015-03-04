@@ -32,6 +32,11 @@ struct file *file_open (struct inode *inode)
     }
 }
 
+bool get_deny_write(struct file *file)
+{
+    return file->deny_write;
+}
+
 /* Opens and returns a new file for the same inode as FILE.
    Returns a null pointer if unsuccessful. */
 struct file *file_reopen (struct file *file)

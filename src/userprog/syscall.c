@@ -6,7 +6,7 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 //#include "filesys/file.h"
-//#include "filesys/filesys.h"
+//#include "filesys/file.c"
 
 
 
@@ -27,6 +27,7 @@ void exit(int status);
 bool create(const char *file, unsigned initial_size);
 void close(int fd);
 void valid_fd(int fd);
+int exec(const char *cmd_line);
 
 void syscall_init (void)
 {
@@ -42,7 +43,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
 
     /* The stack pointer points to the systemcallnumber */    
     int syscallnr = *((int *)f->esp);
-//    printf ("A system call: %d\n", syscallnr);
+    //printf ("A system call: %d\n", syscallnr);
     switch(syscallnr)
     {
        case SYS_HALT :
@@ -54,7 +55,9 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            exit(arguments[0]);
            break;
        case SYS_EXEC :
-           // Do something
+           get_arguments(f,arguments,1);
+           arguments[0] = usr_to_kernel_ptr((const char *) arguments[0]);
+           f->eax = exec((const char *) arguments[0]);
            break;
        case SYS_WAIT :
            get_arguments(f,arguments,1);
@@ -98,9 +101,6 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            close(arguments[0]);
            break;
        
-           
-       
-      
     }
 }
 
@@ -124,9 +124,6 @@ int open (const char *file)
 
     return -1;
 }
-
-
-
 
 
 /* Writes size bytes from buffer to the open file fd.
@@ -168,6 +165,11 @@ int write(int fd, const void *buffer, unsigned size)
     {
         lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
+
+        if(get_deny_write(f))
+        {
+            return 0;
+        }
 
         lock_release(&filesys_lock);
         /* Returns number of bytes written */
@@ -312,4 +314,36 @@ void valid_fd(int fd)
     {
         exit(-1);
     }
+}
+
+
+int exec(const char *cmd_line)
+{
+    
+    /* The parent should wait until it knows what happened to the child,
+       whether it successfully loaded its executable or failed */
+
+    int pid = process_execute(cmd_line);
+    
+    struct process *p = get_child(pid);
+
+    //printf("WAALLLAAAAd\n");
+    //printf("PID IS: %d \n", pid);
+    /* Wait for the child to have been properly loaded */
+    sema_down(&p->load);
+    //printf("HEHEHEHEHEHEHEHEHHHE\n");
+    
+    /* At this point the child process has finished loading and it either failed
+       or succeeded. The child could have received cpu cycles and could even have finished */
+
+    
+    if(p->loaded)
+    {
+        //printf("EXEC RETURNED: %d\n", pid);
+        return pid;
+    }else
+    {
+        return -1;
+    }
+    
 }

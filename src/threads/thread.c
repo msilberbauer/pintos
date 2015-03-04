@@ -245,6 +245,7 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
 
     /* Initialize thread. */
     init_thread (t, name, priority);
+    
     tid = t->tid = allocate_tid ();
 
     /* Stack frame for kernel_thread(). */
@@ -268,6 +269,7 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     p->status = false;
     p->parent_id = thread_current()->tid;
     sema_init(&p->wait, 0);
+    sema_init(&p->load, 0);
     list_push_back (&thread_current()->children, &p->elem);
     t->p = p;
     

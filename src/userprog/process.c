@@ -23,6 +23,7 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 struct process *get_child(int child_tid);
+void remove_child(struct process *child);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -30,8 +31,6 @@ struct process *get_child(int child_tid);
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t process_execute (const char *file_name)
 {
-
-    // printf("ssssssss\n");
     char *fn_copy;
     tid_t tid;
 
@@ -44,7 +43,7 @@ tid_t process_execute (const char *file_name)
 
     char *save_ptr;
     file_name = strtok_r((char *) file_name, " ", &save_ptr);
-    
+
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
     if (tid == TID_ERROR)
@@ -69,16 +68,26 @@ static void start_process (void *file_name_)
     if_.eflags = FLAG_IF | FLAG_MBS;
     success = load (file_name, &if_.eip, &if_.esp);
 
-
     /* Get the name of the first argument (the actual file_name) */
     char *save_ptr;
     char *actual_file_name = strtok_r((char *) file_name, " ", &save_ptr);
-    
+
     /* If load failed, quit. */
     palloc_free_page (actual_file_name);
     if (!success)
+    {
+        thread_cufilerrent()->p->loaded = false; /* The process did not properly load */
+        sema_up(&thread_current()->p->load); /* The parent can now return */
         thread_exit ();
+    }
 
+    /* TODO: How to ensure that the executable of a running process cannot be
+       modified: by itself and by others */
+
+    
+    thread_current()->p->loaded = true;  /* The process properly loaded */
+    sema_up(&thread_current()->p->load); /* The parent can now return */
+    
     /* Start the user process by simulating a return from an
        interrupt, implemented by intr_exit (in
        threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -102,14 +111,23 @@ int process_wait (tid_t child_tid UNUSED)
 {     
     //printf("Waiting for: %d\n", child_tid);
     struct process *p = get_child(child_tid);
+
+    if(p == NULL)
+    {
+        return -1;
+    }
     
     /* The parent thread will wait for its child to finish */
+    //printf("WAITING\n");
     sema_down(&p->wait);
-
+    //printf("FINISHED WAITING\n");
     
     /* At this point the child is dead/finished */
+    int status = p->status;
+
+    remove_child(p);
     
-    return p->status;
+    return status;
 }
 
 /* Free the current process's resources. */
@@ -118,8 +136,9 @@ void process_exit (void)
     struct thread *cur = thread_current();
     uint32_t *pd;
 
-    /* Release it's semaphore */
+    /* Release its semaphore */    
     sema_up(&cur->p->wait);
+
     
     /* Destroy the current process's page directory and switch back
        to the kernel-only page directory. */
@@ -472,7 +491,6 @@ static bool setup_stack (void **esp, const char *file_name)
 
     /* We setup the stack */
 
-    //printf("%s FILE_NAME",file_name);
     char *file_name2 = (char *) malloc((strlen(file_name)+1) * sizeof(char));
     memcpy(file_name2, file_name, strlen(file_name) +1);
 
@@ -485,7 +503,6 @@ static bool setup_stack (void **esp, const char *file_name)
     for (token = strtok_r ((char *) file_name2, " ", &save_ptr); token != NULL;
          token = strtok_r (NULL, " ", &save_ptr))
     {
-        // printf("%s mumumummu",token);
         argc++;       
     }
 
@@ -582,4 +599,12 @@ struct process *get_child(int child_id)
             return p;
         }
     }
+
+    return NULL;
+}
+
+void remove_child(struct process *child)
+{
+    list_remove(&child->elem);
+    free(child);
 }

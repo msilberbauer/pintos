@@ -8,10 +8,13 @@
 struct process
 {
     tid_t pid;               /* The process id */
-    int status;              /* The status of the process */
-    tid_t parent_id;          /* The id of the parent */
+    int status;              /* The exit status of the process */
+    bool loaded;             /* Whether the child successfully loaded its executable */
+    tid_t parent_id;         /* The id of the parent */
     struct semaphore wait;   /* A semaphore used when a parent wants
                                 to wait for its child process */
+    struct semaphore load;   /* A semaphore used when a parent wants
+                                to wait until its child is loaded */
     struct list_elem elem;   /* List element used for a thread to keep track
                                 of its child processes */
 };
