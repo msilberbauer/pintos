@@ -55,7 +55,6 @@ tid_t process_execute (const char *file_name)
    running. */
 static void start_process (void *file_name_)
 {
-    // printf("Starting a user process HERY %s HERY\n", file_name_);
     char *file_name = file_name_;
     struct intr_frame if_;
     bool success;
@@ -72,21 +71,32 @@ static void start_process (void *file_name_)
     char *save_ptr;
     char *actual_file_name = strtok_r((char *) file_name, " ", &save_ptr);
 
-    /* If load failed, quit. */
-    palloc_free_page (actual_file_name);
+
+    /* If load failed, quit. */    
     if (!success)
     {
-        thread_cufilerrent()->p->loaded = false; /* The process did not properly load */
+        palloc_free_page (actual_file_name);
+        thread_current()->p->loaded = false; /* The process did not properly load */
         sema_up(&thread_current()->p->load); /* The parent can now return */
-        thread_exit ();
+
+        exit(-1);
     }
 
-    /* TODO: How to ensure that the executable of a running process cannot be
-       modified: by itself and by others */
+
+    /* Ensure that the executable of a running process cannot be
+       modified: by itself and by others */    
+    int fd = open((const char *)actual_file_name);    
+    struct file *f = thread_current()->fdtable[fd];
+    file_deny_write(f);  
+
+    
+    palloc_free_page (actual_file_name);
 
     
     thread_current()->p->loaded = true;  /* The process properly loaded */
     sema_up(&thread_current()->p->load); /* The parent can now return */
+
+    
     
     /* Start the user process by simulating a return from an
        interrupt, implemented by intr_exit (in
@@ -109,7 +119,6 @@ static void start_process (void *file_name_)
    does nothing. */
 int process_wait (tid_t child_tid UNUSED)
 {     
-    //printf("Waiting for: %d\n", child_tid);
     struct process *p = get_child(child_tid);
 
     if(p == NULL)
@@ -118,9 +127,8 @@ int process_wait (tid_t child_tid UNUSED)
     }
     
     /* The parent thread will wait for its child to finish */
-    //printf("WAITING\n");
     sema_down(&p->wait);
-    //printf("FINISHED WAITING\n");
+
     
     /* At this point the child is dead/finished */
     int status = p->status;
@@ -135,7 +143,7 @@ void process_exit (void)
 {
     struct thread *cur = thread_current();
     uint32_t *pd;
-
+    
     /* Release its semaphore */    
     sema_up(&cur->p->wait);
 

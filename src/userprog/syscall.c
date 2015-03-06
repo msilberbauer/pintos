@@ -5,15 +5,9 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
-//#include "filesys/file.h"
-//#include "filesys/file.c"
 
-
-
-
-/* System calls that return a value can do so by modifying the "eax" member of struct intr_frame. */
-
-struct lock filesys_lock;
+struct lock filesys_lock; /* Should not be neccesary once filesystem project
+                             is implemented. But needed now for tests to succeed */
 
 static void syscall_handler (struct intr_frame *);
 int open (const char *f);
@@ -28,6 +22,8 @@ bool create(const char *file, unsigned initial_size);
 void close(int fd);
 void valid_fd(int fd);
 int exec(const char *cmd_line);
+void seek(int fd, unsigned position);
+void is_valid_buffer(const void *buffer, unsigned size);
 
 void syscall_init (void)
 {
@@ -35,6 +31,7 @@ void syscall_init (void)
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
+/* System calls that return a value can do so by modifying the "eax" member of struct intr_frame. */
 static void syscall_handler (struct intr_frame *f UNUSED)
 {    
     int arguments[3];
@@ -43,7 +40,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
 
     /* The stack pointer points to the systemcallnumber */    
     int syscallnr = *((int *)f->esp);
-    //printf ("A system call: %d\n", syscallnr);
+    //printf("child: %d\n", syscallnr);
     switch(syscallnr)
     {
        case SYS_HALT :
@@ -51,7 +48,6 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            break;
        case SYS_EXIT :
            get_arguments(f,arguments,1);
-           /* TODO close alle filer */
            exit(arguments[0]);
            break;
        case SYS_EXEC :
@@ -82,16 +78,19 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            break;
        case SYS_READ :
            get_arguments(f,arguments,3);
-           arguments[1] = usr_to_kernel_ptr((void *) arguments[1]);
-           f->eax = read(arguments[0], (void*) arguments[1], (unsigned)arguments[2]);
+           is_valid_buffer((const void *)arguments[1],(unsigned)arguments[2]);
+           arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
+           f->eax = read(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_WRITE :
            get_arguments(f,arguments,3);
+           is_valid_buffer((const void *)arguments[1],(unsigned)arguments[2]);           
            arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
            f->eax = write(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_SEEK :
-           // Do something
+           get_arguments(f,arguments,2);
+           seek(arguments[0],(unsigned) arguments[1]);
            break;
        case SYS_TELL :
            // Do something
@@ -100,7 +99,8 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            get_arguments(f,arguments,1);
            close(arguments[0]);
            break;
-       
+       default :
+           exit(-1);
     }
 }
 
@@ -145,13 +145,32 @@ int open (const char *file)
 int write(int fd, const void *buffer, unsigned size)
 {
     valid_fd(fd);
+
+    
+    //printf("fd: %d \n",fd);
+    //printf("size: %d \n",size);
+
+    //if(strcmp(thread_current()->name,"child-bad") == 0)
+    //{
+    //    exit(-1);
+    //}
+
+    // printf("%d\n",sizeof(buffer));
+
     /* Maybe do more checks on arguments */
 
     /*
       might cause problems if it is possible to change the meaning of
       fd 0 and fd 1. fx writing to files instead of console etc.
      */  
-        
+
+    /* TODO: working on wait-killed. getting weird results */
+    //if(strcmp(thread_current()->name,"child-bad") == 0)
+    // {
+    //    exit(-1);
+    //}
+
+    
     if(fd == STDIN_FILENO) /* Can't write to stdin */
     {
         return -1;
@@ -162,18 +181,21 @@ int write(int fd, const void *buffer, unsigned size)
         putbuf(buffer,size);
         return size;
     }else
-    {
+    {  
         lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
 
         if(get_deny_write(f))
         {
+            lock_release(&filesys_lock);
             return 0;
         }
 
+        off_t written = file_write (f, buffer, size);
+        
         lock_release(&filesys_lock);
         /* Returns number of bytes written */
-        return file_write (f, buffer, size);
+        return written;
     }
     lock_release(&filesys_lock);
     return -1;
@@ -213,10 +235,14 @@ int read (int fd, void *buffer, unsigned size)
     }
     else
     {
+        lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
 
-        /* Returns number of bytes written */
-        return file_read (f, buffer, size);
+        off_t read = file_read (f, buffer, size);
+        /* Returns number of bytes read */
+        lock_release(&filesys_lock);
+        return read;
+        
     }
 
     return -1;
@@ -232,13 +258,11 @@ void get_arguments(struct intr_frame *f, int *arguments, int n)
         ptr = (int *) f->esp+i+1;
         is_valid_ptr(ptr);
         arguments[i] = *ptr;
-    }
-    
+    }    
 }
 
 int usr_to_kernel_ptr(const void *vaddr)
 {
-    
     is_valid_ptr(vaddr);
 
     void *ptr = pagedir_get_page (thread_current()->pagedir, vaddr);
@@ -256,7 +280,7 @@ void is_valid_ptr(const void *vaddr)
 {
     /* Terminate if process passed an invalid address */
     if(!is_user_vaddr(vaddr) || vaddr < 0x08048000) /* Bottom of user program */
-    {
+    {        
         exit(-1);
     }
 }
@@ -266,6 +290,14 @@ void exit(int status)
     struct thread *cur = thread_current();
     cur->p->status = status;
     printf("%s: exit(%d)\n", cur->name, cur->p->status);
+
+    /* Close all open files */
+    int i;
+    for(i = 2; i < 10; i++) // for now 0 and 1 reserved for stdin and stdout. not ideal.
+    {
+        close(i);
+    }
+    
     thread_exit();
 }
 
@@ -289,7 +321,11 @@ void close(int fd)
 
     if(thread_current()->fdtable[fd] != NULL)
     {
+        lock_acquire(&filesys_lock);
+        
         file_close(thread_current()->fdtable[fd]);
+
+        lock_release(&filesys_lock);
         thread_current()->fdtable[fd] = NULL;
     }   
     
@@ -301,7 +337,13 @@ int filesize(int fd)
     
     if(thread_current()->fdtable[fd] != NULL)
     {
-        return file_length(thread_current()->fdtable[fd]);
+        lock_acquire(&filesys_lock);
+
+        off_t length = file_length(thread_current()->fdtable[fd]);
+        
+        lock_release(&filesys_lock);
+        
+        return length;
     }
 
     return -1;
@@ -319,19 +361,20 @@ void valid_fd(int fd)
 
 int exec(const char *cmd_line)
 {
-    
+    //printf("cmd_line : %s\n",cmd_line);
     /* The parent should wait until it knows what happened to the child,
        whether it successfully loaded its executable or failed */
 
     int pid = process_execute(cmd_line);
-    
+
+    //printf("%d\n",pid);
     struct process *p = get_child(pid);
 
-    //printf("WAALLLAAAAd\n");
-    //printf("PID IS: %d \n", pid);
+
+    
     /* Wait for the child to have been properly loaded */
     sema_down(&p->load);
-    //printf("HEHEHEHEHEHEHEHEHHHE\n");
+    //printf("%s executed HEHEHEHEHEH\n",cmd_line);
     
     /* At this point the child process has finished loading and it either failed
        or succeeded. The child could have received cpu cycles and could even have finished */
@@ -339,11 +382,36 @@ int exec(const char *cmd_line)
     
     if(p->loaded)
     {
-        //printf("EXEC RETURNED: %d\n", pid);
         return pid;
     }else
     {
         return -1;
     }
     
+}
+
+void seek (int fd, unsigned position)
+{
+    valid_fd(fd);
+    
+    if(thread_current()->fdtable[fd] != NULL)
+    {
+        lock_acquire(&filesys_lock);
+        
+        file_seek(thread_current()->fdtable[fd], position);
+
+        lock_release(&filesys_lock);
+    }
+}
+
+
+void is_valid_buffer(const void *buffer, unsigned size)
+{
+    unsigned i;
+    const void *buf = buffer;
+    for(i = 0; i < size; i++)
+    {
+        is_valid_ptr(buf);
+        buf++;
+    }
 }
