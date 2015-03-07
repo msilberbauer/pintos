@@ -31,16 +31,16 @@ void syscall_init (void)
     intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-/* System calls that return a value can do so by modifying the "eax" member of struct intr_frame. */
 static void syscall_handler (struct intr_frame *f UNUSED)
-{    
+{
+    /* System calls that return a value can do so by modifying the "eax" member of struct intr_frame. */
+    
     int arguments[3];
 
     is_valid_ptr((const void *)f->esp);
 
     /* The stack pointer points to the systemcallnumber */    
     int syscallnr = *((int *)f->esp);
-    //printf("child: %d\n", syscallnr);
     switch(syscallnr)
     {
        case SYS_HALT :
@@ -93,7 +93,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            seek(arguments[0],(unsigned) arguments[1]);
            break;
        case SYS_TELL :
-           // Do something
+           // TODO: Do something
            break;
        case SYS_CLOSE :
            get_arguments(f,arguments,1);
@@ -146,31 +146,11 @@ int write(int fd, const void *buffer, unsigned size)
 {
     valid_fd(fd);
 
-    
-    //printf("fd: %d \n",fd);
-    //printf("size: %d \n",size);
-
-    //if(strcmp(thread_current()->name,"child-bad") == 0)
-    //{
-    //    exit(-1);
-    //}
-
-    // printf("%d\n",sizeof(buffer));
-
-    /* Maybe do more checks on arguments */
-
     /*
       might cause problems if it is possible to change the meaning of
       fd 0 and fd 1. fx writing to files instead of console etc.
      */  
 
-    /* TODO: working on wait-killed. getting weird results */
-    //if(strcmp(thread_current()->name,"child-bad") == 0)
-    // {
-    //    exit(-1);
-    //}
-
-    
     if(fd == STDIN_FILENO) /* Can't write to stdin */
     {
         return -1;
@@ -194,9 +174,11 @@ int write(int fd, const void *buffer, unsigned size)
         off_t written = file_write (f, buffer, size);
         
         lock_release(&filesys_lock);
+        
         /* Returns number of bytes written */
         return written;
     }
+    
     lock_release(&filesys_lock);
     return -1;
 }
@@ -209,8 +191,6 @@ int write(int fd, const void *buffer, unsigned size)
 int read (int fd, void *buffer, unsigned size) 
 {
     valid_fd(fd);
-    
-    /* Maybe do more checks on arguments */
 
     /*
       might cause problems if it is possible to change the meaning of
@@ -239,15 +219,14 @@ int read (int fd, void *buffer, unsigned size)
         struct file *f = thread_current()->fdtable[fd];
 
         off_t read = file_read (f, buffer, size);
+        
         /* Returns number of bytes read */
         lock_release(&filesys_lock);
-        return read;
-        
+        return read;        
     }
 
     return -1;
 }
-
 
 void get_arguments(struct intr_frame *f, int *arguments, int n)
 {
@@ -279,8 +258,15 @@ int usr_to_kernel_ptr(const void *vaddr)
 void is_valid_ptr(const void *vaddr)
 {
     /* Terminate if process passed an invalid address */
-    if(!is_user_vaddr(vaddr) || vaddr < 0x08048000) /* Bottom of user program */
+    if(!is_user_vaddr(vaddr) || vaddr < 0x08048000) /* 0x08048000 is bottom of user program */
     {        
+        exit(-1);
+    }
+
+    void *ptr = pagedir_get_page (thread_current()->pagedir, vaddr);
+
+    if(ptr == NULL)
+    {
         exit(-1);
     }
 }
@@ -307,7 +293,6 @@ bool create(const char *file, unsigned initial_size)
     if(file == NULL)
     {
         exit(-1);
-        return false; /* never reached */
     }
     else
     {
@@ -327,8 +312,7 @@ void close(int fd)
 
         lock_release(&filesys_lock);
         thread_current()->fdtable[fd] = NULL;
-    }   
-    
+    }       
 }
 
 int filesize(int fd)
@@ -361,33 +345,25 @@ void valid_fd(int fd)
 
 int exec(const char *cmd_line)
 {
-    //printf("cmd_line : %s\n",cmd_line);
     /* The parent should wait until it knows what happened to the child,
        whether it successfully loaded its executable or failed */
 
     int pid = process_execute(cmd_line);
-
-    //printf("%d\n",pid);
     struct process *p = get_child(pid);
-
-
     
     /* Wait for the child to have been properly loaded */
     sema_down(&p->load);
-    //printf("%s executed HEHEHEHEHEH\n",cmd_line);
+    
     
     /* At this point the child process has finished loading and it either failed
        or succeeded. The child could have received cpu cycles and could even have finished */
-
-    
     if(p->loaded)
     {
         return pid;
     }else
     {
         return -1;
-    }
-    
+    }    
 }
 
 void seek (int fd, unsigned position)
