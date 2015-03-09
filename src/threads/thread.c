@@ -13,6 +13,7 @@
 #include "threads/vaddr.h"
 #include "devices/timer.h"
 #include "threads/fixedpoint.h"
+#include "vm/frame.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -102,6 +103,7 @@ void thread_init (void)
     list_init (&ready_list);
     list_init (&all_list);
     list_init (&sleeping_list);
+    frame_table_init();
     
     load_avg = 0;
 
@@ -770,9 +772,6 @@ static void init_thread (struct thread *t, const char *name, int priority)
     
     list_init (&t->children);
 
-    
-
-    
     old_level = intr_disable ();
     list_push_back (&all_list, &t->allelem);
     intr_set_level (old_level);
