@@ -4,6 +4,12 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "userprog/pagedir.h"
+#include "vm/page.h"
+#include "vm/frame.h"
+#include "threads/vaddr.h"
+//#include "userprog/syscall.h"
+
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -119,7 +125,7 @@ static void kill (struct intr_frame *f)
    description of "Interrupt 14--Page Fault Exception (#PF)" in
    [IA32-v3a] section 5.15 "Exception and Interrupt Reference". */
 static void page_fault (struct intr_frame *f)
-{
+{    
     bool not_present;  /* True: not-present page, false: writing r/o page. */
     bool write;        /* True: access was write, false: access was read. */
     bool user;         /* True: access by user, false: access by kernel. */
@@ -146,14 +152,87 @@ static void page_fault (struct intr_frame *f)
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
 
-    /* To implement virtual memory, delete the rest of the function
-       body, and replace it with code that brings in the page to
-       which fault_addr refers. */
+
     printf ("Page fault at %p: %s error %s page in %s context.\n",
-            fault_addr,
-            not_present ? "not present" : "rights violation",
-            write ? "writing" : "reading",
-            user ? "user" : "kernel");
-    kill (f);
+        fault_addr,
+        not_present ? "not present" : "rights violation",
+        write ? "writing" : "reading",
+        user ? "user" : "kernel");
+    
+ 
+
+    printf("fault address was 0\n");
+    if(fault_addr == 0)
+    {
+        
+        kill(f);
+    }
+
+    if(not_present)
+    {
+        struct thread *t = thread_current ();
+
+        fault_addr = fault_addr - (void*) (((int) fault_addr) % PGSIZE);
+        struct spt_entry *e = page_lookup(fault_addr);
+
+        if(e == NULL)
+        {
+            printf("There was a huge mistake\n");
+        }
+        printf("looked up: %d         %d\n  ", e->offset, e->read_bytes);
+    
+        
+        /* Get a page of memory. */        
+        uint8_t *kpage = vm_frame_alloc(PAL_USER);
+        if (kpage == NULL)
+        {            
+            printf("There was a huge mistake\n");
+
+        }
+
+        /* Verify that there's not already a page at that virtual
+           address, then map our page there. */
+        bool test = (pagedir_get_page (t->pagedir, e->upage) == NULL &&
+                     pagedir_set_page (t->pagedir, e->upage, kpage, e->writable));
+
+        if (!test)
+        {
+            vm_frame_free(kpage);
+             printf("There was a huge mistake\n");
+            return false;
+        }
+        
+        
+        /* Load this page. */
+        //lock_acquire(&filesys_lock);
+        if (file_read (e->file, kpage, e->read_bytes) != (int) e->read_bytes)
+        {
+            //lock_release(&filesys_lock);
+            vm_frame_free(kpage);
+            printf("There was a huge mistake\n");
+        }
+
+        //lock_release(&filesys_lock);
+        
+        memset (kpage + e->read_bytes, 0, e->zero_bytes);
+
+        /* Add the page to the process's address space. */
+        
+        
+        
+        
+
+        return;
+    }else
+    {
+        
+        
+        /* To implement virtual memory, delete the rest of the function
+           body, and replace it with code that brings in the page to
+           which fault_addr refers. */
+        
+        kill (f);
+    }
+    
 }
 

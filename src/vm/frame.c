@@ -33,6 +33,10 @@ void *vm_frame_alloc(enum palloc_flags flags)
         return NULL;
     }
 
+    if(!(flags & PAL_USER))
+    {
+        return NULL;
+    }
     
     struct frame *f = malloc(sizeof(struct frame));
 

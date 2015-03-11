@@ -17,6 +17,10 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/page.h"
+#include "lib/kernel/hash.h"
+#include <hash.h>
+
 
 #define MAX_ARG 2
 
@@ -34,10 +38,11 @@ tid_t process_execute (const char *file_name)
     char *fn_copy;
     tid_t tid;
 
+    
     /* Make a copy of FILE_NAME.
        Otherwise there's a race between the caller and load(). */
-    fn_copy = vm_frame_alloc(0);
-    // fn_copy = palloc_get_page (0);
+    //fn_copy = vm_frame_alloc(0);
+    fn_copy = palloc_get_page (0);
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy (fn_copy, file_name, PGSIZE);
@@ -49,8 +54,8 @@ tid_t process_execute (const char *file_name)
     tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
     if (tid == TID_ERROR)
     {
-        vm_frame_free(fn_copy);
-        //palloc_free_page (fn_copy); // replace with own frame method
+        //vm_frame_free(fn_copy);
+        palloc_free_page (fn_copy); // replace with own frame method
     }
         
     
@@ -81,8 +86,8 @@ static void start_process (void *file_name_)
     /* If load failed, quit. */    
     if (!success)
     {
-        //palloc_free_page (actual_file_name);
-        vm_frame_free(actual_file_name);
+        palloc_free_page (actual_file_name);
+        //vm_frame_free(actual_file_name);
         
         thread_current()->p->loaded = false; /* The process did not properly load */
         sema_up(&thread_current()->p->load); /* The parent can now return */
@@ -98,8 +103,8 @@ static void start_process (void *file_name_)
     file_deny_write(f);  
 
     
-    //palloc_free_page (actual_file_name);
-    vm_frame_free(actual_file_name);
+    palloc_free_page (actual_file_name);
+    //vm_frame_free(actual_file_name);
 
     
     thread_current()->p->loaded = true;  /* The process properly loaded */
@@ -276,6 +281,10 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
     t->pagedir = pagedir_create ();
     if (t->pagedir == NULL)
         goto done;
+
+    //printf("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
+    hash_init (&t->spt, spt_entry_hash, spt_entry_less, NULL);
+    
     process_activate ();
 
     /* Open executable file. */
@@ -451,12 +460,11 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
     ASSERT (pg_ofs (upage) == 0);
     ASSERT (ofs % PGSIZE == 0);
 
-    file_seek (file, ofs);
+    //file_seek (file, ofs);
 
     /* TODO: record the necessary information in the supplemental page table
        when loading an executable and setting up its stack. Not read it all in upon starting. */
 
-    
     while (read_bytes > 0 || zero_bytes > 0)
     {
         /* Calculate how to fill this page.
@@ -464,34 +472,43 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
            and zero the final PAGE_ZERO_BYTES bytes. */
         size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
+        
+        if(!insert_page(file, ofs, upage, page_read_bytes, page_zero_bytes, writable))
+        {
+            return false;
+        }
+        
         /* Get a page of memory. */
         //uint8_t *kpage = palloc_get_page (PAL_USER);
-        uint8_t *kpage = vm_frame_alloc(PAL_USER);
-        if (kpage == NULL)
-            return false;
+        
+        //uint8_t *kpage = vm_frame_alloc(PAL_USER);
+        //if (kpage == NULL)
+        //    return false;
 
         /* Load this page. */
-        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
+        //if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+        //{
             //palloc_free_page (kpage);
-            vm_frame_free(kpage);
-            return false;
-        }
-        memset (kpage + page_read_bytes, 0, page_zero_bytes);
+            //vm_frame_free(kpage);
+            //return false;
+        //}
+        //memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
         /* Add the page to the process's address space. */
-        if (!install_page (upage, kpage, writable))
-        {
+        //if (!install_page (upage, kpage, writable))
+        //{
             //palloc_free_page (kpage);
-            vm_frame_free(kpage);
-            return false;
-        }
+            //vm_frame_free(kpage);
+            //return false;
+        //}
 
+
+        
         /* Advance. */
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
+        ofs += PGSIZE;
     }
     return true;
 }
@@ -505,8 +522,10 @@ static bool setup_stack (void **esp, const char *file_name)
 
     //kpage = palloc_get_page (PAL_USER | PAL_ZERO);
     kpage = vm_frame_alloc(PAL_USER | PAL_ZERO);
+    
     if (kpage != NULL)
     {
+        
         success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
         if (success)
         {            

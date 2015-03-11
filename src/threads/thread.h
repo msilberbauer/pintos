@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "filesys/file.h"
+#include <hash.h>
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -111,6 +112,7 @@ struct thread
     struct process *p;                  /* The thread's on process struct */
 #endif
 
+    struct hash spt;                    /* Supplemental page table */
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 };

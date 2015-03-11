@@ -14,6 +14,8 @@
 #include "devices/timer.h"
 #include "threads/fixedpoint.h"
 #include "vm/frame.h"
+#include "vm/page.h"
+#include <hash.h>
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -99,11 +101,13 @@ void thread_init (void)
 {
     ASSERT (intr_get_level () == INTR_OFF);
 
+    
     lock_init (&tid_lock);
     list_init (&ready_list);
     list_init (&all_list);
     list_init (&sleeping_list);
     frame_table_init();
+
     
     load_avg = 0;
 
@@ -737,7 +741,8 @@ static bool is_thread (struct thread *t)
 static void init_thread (struct thread *t, const char *name, int priority)
 {
     enum intr_level old_level;
-
+    
+    
     ASSERT (t != NULL);
     ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
     ASSERT (name != NULL);
@@ -767,7 +772,11 @@ static void init_thread (struct thread *t, const char *name, int priority)
     list_init (&t->locks);
     t->desiring_lock = NULL;
     t->wake_tick = 0;
-        
+
+    //printf("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
+    
+    
+    
     t->magic = THREAD_MAGIC;
     
     list_init (&t->children);
