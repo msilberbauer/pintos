@@ -282,7 +282,7 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
     if (t->pagedir == NULL)
         goto done;
 
-    //printf("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
+    
     hash_init (&t->spt, spt_entry_hash, spt_entry_less, NULL);
     
     process_activate ();
@@ -460,10 +460,11 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
     ASSERT (pg_ofs (upage) == 0);
     ASSERT (ofs % PGSIZE == 0);
 
-    //file_seek (file, ofs);
-
-    /* TODO: record the necessary information in the supplemental page table
-       when loading an executable and setting up its stack. Not read it all in upon starting. */
+    /* Record the necessary information in the supplemental page table
+       when loading an executable. We do not read it all in upon starting.
+       It will page fault and the page fault handler will consult
+       the supplemental page table in order to: Allocate new frame which
+       gets loaded with data frem the executable file.*/
 
     while (read_bytes > 0 || zero_bytes > 0)
     {
@@ -477,6 +478,8 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
         {
             return false;
         }
+
+        //file_seek (file, ofs);
         
         /* Get a page of memory. */
         //uint8_t *kpage = palloc_get_page (PAL_USER);
@@ -501,7 +504,6 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
             //vm_frame_free(kpage);
             //return false;
         //}
-
 
         
         /* Advance. */

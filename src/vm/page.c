@@ -8,39 +8,21 @@
 #include "userprog/pagedir.h"
 #include "vm/page.h"
 
-
-//struct hash spt;
-
-/*
-void spt_init(void)
-{
-    
-    hash_init (&spt, spt_entry_hash, spt_entry_less, NULL);
-    printf("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
-
-    }*/
-
-
 bool insert_page(struct file *file, off_t offset, uint8_t *upage,
                  size_t read_bytes, size_t zero_bytes, bool writable)
 {
     struct thread *t = thread_current();
- 
     
     struct spt_entry *e = malloc(sizeof(struct spt_entry));
-
     e->file = file;
     e->offset = offset;
     e->upage = upage;
     e->read_bytes = read_bytes;
     e->zero_bytes = zero_bytes;
     e->writable = writable;
-
-    printf("inserted: %d         %d\n  ", e->offset, e->read_bytes);
     
     return hash_insert(&t->spt, &e->elem) == NULL;
 }
-
 
 /* Returns the page containing the given virtual address,
    or a null pointer if no such page exists. From Pintos manual */
@@ -55,8 +37,6 @@ struct spt_entry *page_lookup (const void *address)
     e = hash_find (&t->spt, &p.elem);
     return e != NULL ? hash_entry (e, struct spt_entry, elem) : NULL;
 }
-
-
 
 /* Returns a hash value for page p. From Pintos manual */
 unsigned spt_entry_hash (const struct hash_elem *p_, void *aux UNUSED)

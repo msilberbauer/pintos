@@ -100,14 +100,11 @@ bool sleep_order_function(const struct list_elem *a,const struct list_elem *b, v
 void thread_init (void)
 {
     ASSERT (intr_get_level () == INTR_OFF);
-
     
     lock_init (&tid_lock);
     list_init (&ready_list);
     list_init (&all_list);
     list_init (&sleeping_list);
-    frame_table_init();
-
     
     load_avg = 0;
 

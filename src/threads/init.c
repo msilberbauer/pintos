@@ -115,6 +115,10 @@ int main (void)
     syscall_init ();
 #endif
 
+
+    frame_table_init();
+
+    
     /* Start thread scheduler and enable interrupts. */
     thread_start ();
     serial_init_queue ();
