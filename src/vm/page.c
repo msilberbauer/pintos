@@ -7,6 +7,7 @@
 #include "lib/kernel/list.h"
 #include "userprog/pagedir.h"
 #include "vm/page.h"
+#include "threads/vaddr.h"
 
 bool insert_page(struct file *file, off_t offset, uint8_t *upage,
                  size_t read_bytes, size_t zero_bytes, bool writable)
@@ -33,7 +34,7 @@ struct spt_entry *page_lookup (const void *address)
     struct spt_entry p;
     struct hash_elem *e;
   
-    p.upage = address;
+    p.upage = pg_round_down(address);
     e = hash_find (&t->spt, &p.elem);
     return e != NULL ? hash_entry (e, struct spt_entry, elem) : NULL;
 }

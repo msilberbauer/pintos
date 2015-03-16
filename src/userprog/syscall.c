@@ -6,8 +6,6 @@
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 
-struct lock filesys_lock; /* Should not be neccesary once filesystem project
-                             is implemented. But needed now for tests to succeed */
 
 static void syscall_handler (struct intr_frame *);
 int open (const char *f);
@@ -52,8 +50,9 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            break;
        case SYS_EXEC :
            get_arguments(f,arguments,1);
-           arguments[0] = usr_to_kernel_ptr((const char *) arguments[0]);
-           f->eax = exec((const char *) arguments[0]);
+           is_valid_ptr(arguments[0]);
+           f->eax = exec(pagedir_get_page (thread_current()->pagedir, arguments[0]));
+           //f->eax = exec((const char *)arguments[0]);
            break;
        case SYS_WAIT :
            get_arguments(f,arguments,1);
@@ -61,15 +60,15 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            break;
        case SYS_CREATE :
            get_arguments(f,arguments,2);
-           arguments[0] = usr_to_kernel_ptr((const char *) arguments[0]);
+           is_valid_ptr(arguments[0]);
            f->eax = create((const char *) arguments[0],(unsigned) arguments[1]);
            break;
        case SYS_REMOVE :
-           // Do something
+           // TODO: Do something
            break;
        case SYS_OPEN :
            get_arguments(f,arguments,1);
-           arguments[0] = usr_to_kernel_ptr((const char *) arguments[0]);
+           is_valid_ptr(arguments[0]);
            f->eax = open(arguments[0]);
            break;
        case SYS_FILESIZE :
@@ -79,13 +78,15 @@ static void syscall_handler (struct intr_frame *f UNUSED)
        case SYS_READ :
            get_arguments(f,arguments,3);
            is_valid_buffer((const void *)arguments[1],(unsigned)arguments[2]);
-           arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
+           is_valid_ptr(arguments[1]);
+           //arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
            f->eax = read(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_WRITE :
            get_arguments(f,arguments,3);
            is_valid_buffer((const void *)arguments[1],(unsigned)arguments[2]);           
-           arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
+           //arguments[1] = usr_to_kernel_ptr((const void *) arguments[1]);
+           is_valid_ptr(arguments[1]);
            f->eax = write(arguments[0], (const void *) arguments[1], (unsigned)arguments[2]);
            break;
        case SYS_SEEK :
@@ -107,6 +108,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
 int open (const char *file)
 {
     /* Tænk over synchronization, og flere læse/read på samme fil */
+    
     struct file *f = filesys_open(file);
 
     if(f != NULL)
@@ -117,11 +119,12 @@ int open (const char *file)
             if(thread_current()->fdtable[i] == NULL)
             {
                 thread_current()->fdtable[i] = f;
+                
                 return i;
             }
         }
-    }
-
+    }    
+    
     return -1;
 }
 
@@ -217,7 +220,7 @@ int read (int fd, void *buffer, unsigned size)
     {
         lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
-
+        
         off_t read = file_read (f, buffer, size);
         
         /* Returns number of bytes read */
@@ -236,9 +239,13 @@ void get_arguments(struct intr_frame *f, int *arguments, int n)
     {
         ptr = (int *) f->esp+i+1;
         is_valid_ptr(ptr);
+        //void *ptrr = pagedir_get_page (thread_current()->pagedir, ptr);
+        //arguments[i] = *(int*)ptrr;
         arguments[i] = *ptr;
+        
     }    
 }
+
 
 int usr_to_kernel_ptr(const void *vaddr)
 {
@@ -251,7 +258,7 @@ int usr_to_kernel_ptr(const void *vaddr)
         exit(-1);
     }else
     {
-        return (int) ptr;
+        return ptr;
     }
 }
 
@@ -259,16 +266,17 @@ void is_valid_ptr(const void *vaddr)
 {
     /* Terminate if process passed an invalid address */
     if(!is_user_vaddr(vaddr) || vaddr < 0x08048000) /* 0x08048000 is bottom of user program */
-    {        
+    {
         exit(-1);
     }
-
+    
     void *ptr = pagedir_get_page (thread_current()->pagedir, vaddr);
 
     if(ptr == NULL)
     {
         exit(-1);
     }
+
 }
 
 void exit(int status)
@@ -296,7 +304,10 @@ bool create(const char *file, unsigned initial_size)
     }
     else
     {
-        return filesys_create(file,initial_size);
+        lock_acquire(&filesys_lock);
+        bool result = filesys_create(file,initial_size);
+        lock_release(&filesys_lock);
+        return result;
     }
 }
 

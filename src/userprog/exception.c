@@ -8,6 +8,7 @@
 #include "vm/page.h"
 #include "vm/frame.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 
 /* Number of page faults processed. */
@@ -15,6 +16,7 @@ static long long page_fault_cnt;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
+static void fail (struct intr_frame *f);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -151,61 +153,100 @@ static void page_fault (struct intr_frame *f)
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
 
- 
+
+/*
+  printf ("Page fault at %p: %s error %s page in %s context.\n",
+  fault_addr,
+  not_present ? "not present" : "rights violation",
+  write ? "writing" : "reading",
+  user ? "user" : "kernel");
+*/  
+    
     if(fault_addr == 0)
-    {        
-        kill(f);
+    {
+        fail(f);
     }
-    if(not_present)
+
+    /* Is it a missing page and is it in user space?
+       0x08048000 is bottom of user program */
+    if(not_present && fault_addr < PHYS_BASE && fault_addr > 0x08048000) 
     {
         struct thread *t = thread_current ();
-        fault_addr = fault_addr - (void*) (((int) fault_addr) % PGSIZE);
+        //fault_addr = fault_addr - (void*) (((int) fault_addr) % PGSIZE);
         struct spt_entry *e = page_lookup(fault_addr);
         if(e == NULL)
         {
-            //printf("There was a huge mistake\n");
-        }
-        
-        /* Get a page/frame of memory. */        
-        uint8_t *kpage = vm_frame_alloc(PAL_USER);
-        if (kpage == NULL)
-        {            
-            //printf("There was a huge mistake\n");
-        }
+            
+            if(fault_addr >= f->esp - 32) /* Is it a stack access? */
+            {
+                
+                /* Time to grow stack */
+                uint8_t *kpage;
+                kpage = vm_frame_alloc(PAL_USER);
+                uint8_t *upage = pg_round_down(fault_addr);
+                if (kpage != NULL)
+                {        
+                    bool success = (pagedir_get_page (t->pagedir, upage) == NULL &&
+                               pagedir_set_page (t->pagedir, upage, kpage, true));
+                    
+                    if (success)
+                    {
+                        insert_page(NULL,0,upage,0,0,true);
+                    }else
+                    {
+                        vm_frame_free(kpage);
+                        fail(f);
+                    }         
+                }
+            }
 
-        /* Verify that there's not already a page at that virtual
-           address, then map our page there. */
-        bool test = (pagedir_get_page (t->pagedir, e->upage) == NULL &&
-                     pagedir_set_page (t->pagedir, e->upage, kpage, e->writable));
-
-        if (!test)
+            //fail(f);            
+        }else
         {
-            vm_frame_free(kpage);
-            //printf("There was a huge mistake\n");
-            return;
-        }
+            /* Get a page/frame of memory. */        
+            uint8_t *kpage = vm_frame_alloc(PAL_USER);
+            if (kpage == NULL)
+            {            
+                //printf("Could not allocate a frame. TODO: swapping\n");
+                fail(f);
+            }
 
-        /* Load this page. */
-        //lock_acquire(&filesys_lock);
-        if(file_read_at(e->file, kpage, e->read_bytes, e->offset) != e->read_bytes)
-        {
-            //lock_release(&filesys_lock);
-            vm_frame_free(kpage);
-            //printf("There was a huge mistake\n");
-        }
-        //lock_release(&filesys_lock);
+            /* Load this page. */
+            lock_acquire(&filesys_lock);
+            if(file_read_at(e->file, kpage, e->read_bytes, e->offset) != e->read_bytes)
+            {
+                lock_release(&filesys_lock);
+                vm_frame_free(kpage);
+                //printf("There was a huge mistake\n");
+                fail(f);
+                return;
+            }
+            lock_release(&filesys_lock);
         
-        memset (kpage + e->read_bytes, 0, e->zero_bytes);
+            memset (kpage + e->read_bytes, 0, e->zero_bytes);
+
+            /* Verify that there's not already a page at that virtual
+               address, then map our page there. */
+            bool test = (pagedir_get_page (t->pagedir, e->upage) == NULL &&
+                         pagedir_set_page (t->pagedir, e->upage, kpage, e->writable));
+            if (!test)
+            {
+                vm_frame_free(kpage);
+                //printf("There was a huge mistake\n");
+                fail(f);
+            }
+        }
     }else
-    {   
-        /*
-        printf ("Page fault at %p: %s error %s page in %s context.\n",
-        fault_addr,
-        not_present ? "not present" : "rights violation",
-        write ? "writing" : "reading",
-        user ? "user" : "kernel");
-        */
-        kill (f);
-    }    
+    {
+        fail(f);
+        
+    }
+
+    
 }
 
+static void fail (struct intr_frame *f)
+{
+    
+    kill (f);
+}

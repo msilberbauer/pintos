@@ -37,18 +37,19 @@ tid_t process_execute (const char *file_name)
 {
     char *fn_copy;
     tid_t tid;
-
     
     /* Make a copy of FILE_NAME.
        Otherwise there's a race between the caller and load(). */
-    //fn_copy = vm_frame_alloc(0);
     fn_copy = palloc_get_page (0);
     if (fn_copy == NULL)
         return TID_ERROR;
     strlcpy (fn_copy, file_name, PGSIZE);
 
+
+
+    
     char *save_ptr;
-    file_name = strtok_r((char *) file_name, " ", &save_ptr);
+   file_name = strtok_r((char *) file_name, " ", &save_ptr);
 
     /* Create a new thread to execute FILE_NAME. */
     tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
@@ -57,7 +58,7 @@ tid_t process_execute (const char *file_name)
         //vm_frame_free(fn_copy);
         palloc_free_page (fn_copy); // replace with own frame method
     }
-        
+
     
     return tid;
 }
@@ -87,7 +88,6 @@ static void start_process (void *file_name_)
     if (!success)
     {
         palloc_free_page (actual_file_name);
-        //vm_frame_free(actual_file_name);
         
         thread_current()->p->loaded = false; /* The process did not properly load */
         sema_up(&thread_current()->p->load); /* The parent can now return */
@@ -510,7 +510,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
         read_bytes -= page_read_bytes;
         zero_bytes -= page_zero_bytes;
         upage += PGSIZE;
-        ofs += PGSIZE;
+        ofs += page_read_bytes;
     }
     return true;
 }
@@ -524,18 +524,20 @@ static bool setup_stack (void **esp, const char *file_name)
 
     //kpage = palloc_get_page (PAL_USER | PAL_ZERO);
     kpage = vm_frame_alloc(PAL_USER | PAL_ZERO);
-    
+    uint8_t *upage = pg_round_down(((uint8_t *) PHYS_BASE)) - PGSIZE;
     if (kpage != NULL)
     {
         
-        success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+        success = install_page (upage, kpage, true);
         if (success)
-        {            
+        {
+            insert_page(NULL,0,upage,0,0,true);
             *esp = PHYS_BASE;
         }else
         {
             //palloc_free_page (kpage);
             vm_frame_free(kpage);
+            return false;
         }
          
     }
