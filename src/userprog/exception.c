@@ -175,10 +175,14 @@ static void page_fault (struct intr_frame *f)
         //fault_addr = fault_addr - (void*) (((int) fault_addr) % PGSIZE);
         struct spt_entry *e = page_lookup(fault_addr);
         if(e == NULL)
-        {
-            
+        {            
             if(fault_addr >= f->esp - 32) /* Is it a stack access? */
             {
+                /* Have we run out of stack space? */
+                if(PHYS_BASE - fault_addr > MAX_STACK_SIZE)
+                {
+                    exit(-1);
+                }
                 
                 /* Time to grow stack */
                 uint8_t *kpage;
@@ -198,9 +202,10 @@ static void page_fault (struct intr_frame *f)
                         fail(f);
                     }         
                 }
-            }
-
-            //fail(f);            
+            }else
+            {
+                fail(f);
+            }                        
         }else
         {
             /* Get a page/frame of memory. */        
@@ -238,15 +243,11 @@ static void page_fault (struct intr_frame *f)
         }
     }else
     {
-        fail(f);
-        
-    }
-
-    
+        fail(f);        
+    }    
 }
 
 static void fail (struct intr_frame *f)
-{
-    
+{    
     kill (f);
 }
