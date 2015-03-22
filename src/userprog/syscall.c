@@ -197,7 +197,7 @@ int write(int fd, const void *buffer, unsigned size)
    Returns the number of bytes actually read (0 at end of file)
    or -1 if the file could not be read (due to a condition other than end of file).
    Fd 0 reads from the keyboard using input_getc(). */
-int read (int fd, void *buffer, unsigned size, void * sp) 
+int read (int fd, void *buffer, unsigned size, void *sp) 
 {
     is_valid_fd(fd);
 
@@ -208,12 +208,23 @@ int read (int fd, void *buffer, unsigned size, void * sp)
     {
         exit(-1);
     }   
-
+    //
     struct spt_entry *page = page_lookup(buffer);
+    //if(page == NULL && buffer >= 0x08048000 )
+    if(page == NULL && sp >= buffer )
+    {
+        // exit(-1);
         
+        // {
+        //printf("sp is: %p, buffer is: %p\n",sp,buffer);
+        //printf("OKI HIIIIIIIIIIIIIIIII\n");
+        // exit(-1);
+        
+     }
     /* Do we have to expand the stack? */
-    if (page == NULL && sp-32 <= buffer)
-    {        
+    if(page == NULL && sp-32 <= buffer)
+    {
+        
         void *rd_buffer = pg_round_down(buffer);
         struct thread *cur = thread_current();
   
@@ -222,7 +233,8 @@ int read (int fd, void *buffer, unsigned size, void * sp)
             is_user_vaddr(rd_buffer + count) &&
             page_lookup(rd_buffer + count) == NULL;
             count += PGSIZE)
-        {           
+        {
+            
             /* Have we run out of stack space? */
             if(PHYS_BASE - buffer > MAX_STACK_SIZE)
             {
@@ -264,8 +276,8 @@ int read (int fd, void *buffer, unsigned size, void * sp)
     {
         //lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
-        
-        off_t read = file_read (f, buffer, size);
+
+        off_t read = file_read(f, buffer, size);
         
         /* Returns number of bytes read */
         //lock_release(&filesys_lock);

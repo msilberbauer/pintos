@@ -153,14 +153,14 @@ static void page_fault (struct intr_frame *f)
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
 
+    
 
-/*
   printf ("Page fault at %p: %s error %s page in %s context.\n",
   fault_addr,
   not_present ? "not present" : "rights violation",
   write ? "writing" : "reading",
   user ? "user" : "kernel");
-*/  
+
     
     if(fault_addr == 0)
     {
@@ -169,10 +169,9 @@ static void page_fault (struct intr_frame *f)
 
     /* Is it a missing page and is it in user space?
        0x08048000 is bottom of user program */
-    if(not_present && fault_addr < PHYS_BASE && fault_addr > 0x08048000) 
+    if(not_present && fault_addr < PHYS_BASE && fault_addr > 0x08048000)
     {
         struct thread *t = thread_current ();
-        //fault_addr = fault_addr - (void*) (((int) fault_addr) % PGSIZE);
         struct spt_entry *e = page_lookup(fault_addr);
         if(e == NULL)
         {            
@@ -181,7 +180,14 @@ static void page_fault (struct intr_frame *f)
                 /* Have we run out of stack space? */
                 if(PHYS_BASE - fault_addr > MAX_STACK_SIZE)
                 {
-                    exit(-1);
+                    if(!user) 
+                    {
+                        /* Page fault occurred in kernel mode. */
+                        exit(-1);
+                    }else
+                    {                   
+                        fail(f);
+                    }                 
                 }
                 
                 /* Time to grow stack */
@@ -204,7 +210,14 @@ static void page_fault (struct intr_frame *f)
                 }
             }else
             {
-                fail(f);
+                if(!user)
+                {
+                    /* Page fault occurred in kernel mode. */
+                    exit(-1);
+                }else
+                {                    
+                    fail(f);
+                }
             }                        
         }else
         {
@@ -227,7 +240,6 @@ static void page_fault (struct intr_frame *f)
                 return;
             }
             lock_release(&filesys_lock);
-        
             memset (kpage + e->read_bytes, 0, e->zero_bytes);
 
             /* Verify that there's not already a page at that virtual
@@ -241,7 +253,17 @@ static void page_fault (struct intr_frame *f)
                 fail(f);
             }
         }
-    }else
+    }else if(!not_present) /* Rights violation error */
+    {
+        if(!user)
+        {
+            /* Page fault occurred in kernel mode. */
+            exit(-1);
+        }else
+        {                   
+            fail(f);
+        }
+    }else 
     {
         fail(f);        
     }    
