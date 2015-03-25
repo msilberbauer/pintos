@@ -175,7 +175,7 @@ static void page_fault (struct intr_frame *f)
         struct thread *t = thread_current ();
         struct spt_entry *e = page_lookup(fault_addr);
         if(e == NULL)
-        {            
+        {
             if(fault_addr >= f->esp - 32) /* Is it a stack access? */
             {                
                 /* Have we run out of stack space? */
@@ -226,11 +226,13 @@ static void page_fault (struct intr_frame *f)
             uint8_t *kpage = vm_frame_alloc(PAL_USER, e->upage);
             if (kpage == NULL)
             {
+                //printf("no kpage\n");
                 fail(f);
             }
 
             if(pagedir_set_page(t->pagedir, e->upage, kpage, e->writable) == NULL)
             {
+                //printf("could not set pagedir\n");
                 fail(f);
             }
             
@@ -252,14 +254,14 @@ static void page_fault (struct intr_frame *f)
                     memset (kpage + e->read_bytes, 0, e->zero_bytes);                    
                 break;
             case SWAP: /* swap in the page from the swap disk to the physical memory */
-                    
-                    swap_read(e->swap_page, fault_addr);
-                break;
-                
-                case ZERO:
+                swap_read(e->bitmap_index, fault_addr);
+                break;                
+            case ZERO:
                     memset(fault_addr, 0, PGSIZE);
                 break;
             }
+
+            pagedir_set_dirty(t->pagedir, fault_addr, false);
         }
     }else if(!not_present) /* Rights violation error */
     {

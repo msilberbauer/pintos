@@ -213,8 +213,7 @@ int read (int fd, void *buffer, unsigned size, void *sp)
     
     /* Do we have to expand the stack? */
     if(page == NULL && sp-32 <= buffer)
-    {
-        
+    {        
         void *rd_buffer = pg_round_down(buffer);
         struct thread *cur = thread_current();
   

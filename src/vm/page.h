@@ -26,8 +26,8 @@ struct spt_entry
     off_t offset;            /* Combined with page number obtain the physical
                                 address */
     
-    // Used if type is SWAP */
-    int swap_page;           /* The victim page that has been swapped out */
+    /* Used if type is SWAP */
+    int bitmap_index;        /* The bitmap index of this page that has been swapped out */
     
     struct hash_elem elem;   /* Used to insert in hash table */
     enum spt_type type;      /* The type, where the data is stored */
