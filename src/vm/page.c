@@ -10,7 +10,7 @@
 #include "threads/vaddr.h"
 
 bool insert_page(struct file *file, off_t offset, uint8_t *upage,
-                 size_t read_bytes, size_t zero_bytes, bool writable)
+                 size_t read_bytes, size_t zero_bytes, bool writable, enum spt_type type)
 {
     struct thread *t = thread_current();
     
@@ -21,13 +21,14 @@ bool insert_page(struct file *file, off_t offset, uint8_t *upage,
     e->read_bytes = read_bytes;
     e->zero_bytes = zero_bytes;
     e->writable = writable;
+    e->type = type;
     
     return hash_insert(&t->spt, &e->elem) == NULL;
 }
 
 /* Returns the page containing the given virtual address,
    or a null pointer if no such page exists. From Pintos manual */
-struct spt_entry *page_lookup (const void *address)
+struct spt_entry *page_lookup(const void *address)
 {
     struct thread *t = thread_current();
     

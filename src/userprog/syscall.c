@@ -208,19 +208,9 @@ int read (int fd, void *buffer, unsigned size, void *sp)
     {
         exit(-1);
     }   
-    //
+    
     struct spt_entry *page = page_lookup(buffer);
-    //if(page == NULL && buffer >= 0x08048000 )
-    if(page == NULL && sp >= buffer )
-    {
-        // exit(-1);
-        
-        // {
-        //printf("sp is: %p, buffer is: %p\n",sp,buffer);
-        //printf("OKI HIIIIIIIIIIIIIIIII\n");
-        // exit(-1);
-        
-     }
+    
     /* Do we have to expand the stack? */
     if(page == NULL && sp-32 <= buffer)
     {
@@ -241,14 +231,14 @@ int read (int fd, void *buffer, unsigned size, void *sp)
                 exit(-1);
             }
             
-            void *frame = vm_frame_alloc(PAL_USER | PAL_ZERO);
+            void *frame = vm_frame_alloc(PAL_USER | PAL_ZERO, rd_buffer);
             if(frame != NULL)
             {
                 bool success = (pagedir_get_page(cur->pagedir, rd_buffer + count) == NULL &&
                                 pagedir_set_page(cur->pagedir, rd_buffer + count, frame, true));
                 if(success)
                 {
-                    insert_page(NULL,0,rd_buffer,0,0,true);
+                    insert_page(NULL,0,rd_buffer,0,0,true, SWAP);
                 }else
                 {
                     vm_frame_free(frame);

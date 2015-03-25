@@ -7,6 +7,7 @@
 #include "userprog/pagedir.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
 
@@ -154,13 +155,13 @@ static void page_fault (struct intr_frame *f)
     user = (f->error_code & PF_U) != 0;
 
     
-
+/*
   printf ("Page fault at %p: %s error %s page in %s context.\n",
   fault_addr,
   not_present ? "not present" : "rights violation",
   write ? "writing" : "reading",
   user ? "user" : "kernel");
-
+*/
     
     if(fault_addr == 0)
     {
@@ -176,7 +177,7 @@ static void page_fault (struct intr_frame *f)
         if(e == NULL)
         {            
             if(fault_addr >= f->esp - 32) /* Is it a stack access? */
-            {
+            {                
                 /* Have we run out of stack space? */
                 if(PHYS_BASE - fault_addr > MAX_STACK_SIZE)
                 {
@@ -191,9 +192,9 @@ static void page_fault (struct intr_frame *f)
                 }
                 
                 /* Time to grow stack */
-                uint8_t *kpage;
-                kpage = vm_frame_alloc(PAL_USER);
+                uint8_t *kpage;                
                 uint8_t *upage = pg_round_down(fault_addr);
+                kpage = vm_frame_alloc(PAL_USER, upage);
                 if (kpage != NULL)
                 {        
                     bool success = (pagedir_get_page (t->pagedir, upage) == NULL &&
@@ -201,7 +202,7 @@ static void page_fault (struct intr_frame *f)
                     
                     if (success)
                     {
-                        insert_page(NULL,0,upage,0,0,true);
+                        insert_page(NULL,0,upage,0,0,true, SWAP);
                     }else
                     {
                         vm_frame_free(kpage);
@@ -222,35 +223,42 @@ static void page_fault (struct intr_frame *f)
         }else
         {
             /* Get a page/frame of memory. */        
-            uint8_t *kpage = vm_frame_alloc(PAL_USER);
+            uint8_t *kpage = vm_frame_alloc(PAL_USER, e->upage);
             if (kpage == NULL)
-            {            
-                //printf("Could not allocate a frame. TODO: swapping\n");
+            {
                 fail(f);
             }
 
-            /* Load this page. */
-            lock_acquire(&filesys_lock);
-            if(file_read_at(e->file, kpage, e->read_bytes, e->offset) != e->read_bytes)
+            if(pagedir_set_page(t->pagedir, e->upage, kpage, e->writable) == NULL)
             {
-                lock_release(&filesys_lock);
-                vm_frame_free(kpage);
-                //printf("There was a huge mistake\n");
                 fail(f);
-                return;
             }
-            lock_release(&filesys_lock);
-            memset (kpage + e->read_bytes, 0, e->zero_bytes);
-
-            /* Verify that there's not already a page at that virtual
-               address, then map our page there. */
-            bool test = (pagedir_get_page (t->pagedir, e->upage) == NULL &&
-                         pagedir_set_page (t->pagedir, e->upage, kpage, e->writable));
-            if (!test)
+            
+            bool test = false;
+            switch(e->type)
             {
-                vm_frame_free(kpage);
-                //printf("There was a huge mistake\n");
-                fail(f);
+                case FS:
+                    /* Load this page. */
+                    lock_acquire(&filesys_lock);
+                    if(file_read_at(e->file, kpage, e->read_bytes, e->offset) != e->read_bytes)
+                    {
+                        lock_release(&filesys_lock);
+                        vm_frame_free(kpage);
+                        //printf("There was a huge mistake\n");
+                        fail(f);
+                        return;
+                    }
+                    lock_release(&filesys_lock);
+                    memset (kpage + e->read_bytes, 0, e->zero_bytes);                    
+                break;
+            case SWAP: /* swap in the page from the swap disk to the physical memory */
+                    
+                    swap_read(e->swap_page, fault_addr);
+                break;
+                
+                case ZERO:
+                    memset(fault_addr, 0, PGSIZE);
+                break;
             }
         }
     }else if(!not_present) /* Rights violation error */
