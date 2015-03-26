@@ -528,7 +528,7 @@ static bool setup_stack (void **esp, const char *file_name)
         success = install_page (upage, kpage, true);
         if (success)
         {
-            insert_page(NULL,0,upage,0,0,true,SWAP);
+            insert_page(NULL,0,upage,0,0,true,FS);
             *esp = PHYS_BASE;
         }else
         {

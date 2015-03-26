@@ -66,7 +66,7 @@ static uint32_t *lookup_page (uint32_t *pd, const void *vaddr, bool create)
     if (*pde == 0)
     {
         if (create)
-        {
+        {            
             pt = palloc_get_page (PAL_ZERO);
             if (pt == NULL)
                 return NULL;

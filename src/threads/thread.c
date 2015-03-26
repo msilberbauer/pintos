@@ -155,7 +155,7 @@ void thread_tick (int64_t nowtick)
     else
         kernel_ticks++;
 
-
+    
     if(thread_mlfqs)
     {
         /* At every timer interrupt recent cpu is incremented by 1 for the

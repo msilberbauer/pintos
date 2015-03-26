@@ -22,6 +22,7 @@ bool insert_page(struct file *file, off_t offset, uint8_t *upage,
     e->zero_bytes = zero_bytes;
     e->writable = writable;
     e->type = type;
+    e->loaded = true;
     
     return hash_insert(&t->spt, &e->elem) == NULL;
 }

@@ -10,6 +10,7 @@ void *frame_alloc(enum palloc_flags flags, const void *uadd);
 void *vm_frame_free(void *frame);
 void *vm_frame_evict(const void *uaddr);
 struct frame *vm_frame_pick_victim(void);
+void vm_frame_age(int64_t cur);
 
 struct frame
 {
@@ -17,4 +18,5 @@ struct frame
     struct list_elem elem;
     struct thread *thread;
     void *uaddr;
+    char references;        /* LRU (aging bits) */
 };

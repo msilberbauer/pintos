@@ -194,7 +194,9 @@ static void page_fault (struct intr_frame *f)
                 /* Time to grow stack */
                 uint8_t *kpage;                
                 uint8_t *upage = pg_round_down(fault_addr);
+                
                 kpage = vm_frame_alloc(PAL_USER, upage);
+                
                 if (kpage != NULL)
                 {        
                     bool success = (pagedir_get_page (t->pagedir, upage) == NULL &&
@@ -202,7 +204,7 @@ static void page_fault (struct intr_frame *f)
                     
                     if (success)
                     {
-                        insert_page(NULL,0,upage,0,0,true, SWAP);
+                        insert_page(NULL,0,upage,0,0,true, FS);
                     }else
                     {
                         vm_frame_free(kpage);
@@ -222,7 +224,8 @@ static void page_fault (struct intr_frame *f)
             }                        
         }else
         {
-            /* Get a page/frame of memory. */        
+            /* Get a page/frame of memory. */
+            e->loaded = false;            
             uint8_t *kpage = vm_frame_alloc(PAL_USER, e->upage);
             if (kpage == NULL)
             {
@@ -253,15 +256,16 @@ static void page_fault (struct intr_frame *f)
                     lock_release(&filesys_lock);
                     memset (kpage + e->read_bytes, 0, e->zero_bytes);                    
                 break;
-            case SWAP: /* swap in the page from the swap disk to the physical memory */
-                swap_read(e->bitmap_index, fault_addr);
-                break;                
-            case ZERO:
+                case SWAP: /* swap in the page from the swap disk to the physical memory */
+                    swap_read(e->bitmap_index, fault_addr);
+                    break;                
+                case ZERO:
                     memset(fault_addr, 0, PGSIZE);
-                break;
+                    break;
             }
 
             pagedir_set_dirty(t->pagedir, fault_addr, false);
+            e->loaded = true;;
         }
     }else if(!not_present) /* Rights violation error */
     {

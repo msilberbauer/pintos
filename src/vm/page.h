@@ -31,6 +31,8 @@ struct spt_entry
     
     struct hash_elem elem;   /* Used to insert in hash table */
     enum spt_type type;      /* The type, where the data is stored */
+
+    bool loaded;             /* Whether this page has finished loading or not */
 };
 
 unsigned spt_entry_hash (const struct hash_elem *, void *);
