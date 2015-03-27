@@ -195,7 +195,7 @@ static void page_fault (struct intr_frame *f)
                 uint8_t *kpage;                
                 uint8_t *upage = pg_round_down(fault_addr);
                 
-                kpage = vm_frame_alloc(PAL_USER, upage);
+                kpage = vm_frame_alloc(PAL_USER | PAL_ZERO, upage);
                 
                 if (kpage != NULL)
                 {        
@@ -225,17 +225,19 @@ static void page_fault (struct intr_frame *f)
         }else
         {
             /* Get a page/frame of memory. */
-            e->loaded = false;            
+            //e->loaded = false;            
             uint8_t *kpage = vm_frame_alloc(PAL_USER, e->upage);
             if (kpage == NULL)
             {
-                //printf("no kpage\n");
+                printf("no kpage\n");
                 fail(f);
             }
 
+            struct frame *f = get_frame(kpage);
+            f->pinned = true;
             if(pagedir_set_page(t->pagedir, e->upage, kpage, e->writable) == NULL)
             {
-                //printf("could not set pagedir\n");
+                printf("could not set pagedir\n");
                 fail(f);
             }
             
@@ -244,20 +246,25 @@ static void page_fault (struct intr_frame *f)
             {
                 case FS:
                     /* Load this page. */
-                    lock_acquire(&filesys_lock);
+                    
+                    //if (!lock_held_by_current_thread (&filesys_lock))
+                    //    lock_acquire (&filesys_lock);
                     if(file_read_at(e->file, kpage, e->read_bytes, e->offset) != e->read_bytes)
                     {
                         lock_release(&filesys_lock);
                         vm_frame_free(kpage);
-                        //printf("There was a huge mistake\n");
+                        printf("There was a huge mistake\n");
                         fail(f);
                         return;
                     }
-                    lock_release(&filesys_lock);
+                    //if (!lock_held_by_current_thread (&filesys_lock))
+                    //    lock_release (&filesys_lock);
+                    //lock_release(&filesys_lock);
                     memset (kpage + e->read_bytes, 0, e->zero_bytes);                    
                 break;
                 case SWAP: /* swap in the page from the swap disk to the physical memory */
                     swap_read(e->bitmap_index, fault_addr);
+                    
                     break;                
                 case ZERO:
                     memset(fault_addr, 0, PGSIZE);
@@ -265,7 +272,8 @@ static void page_fault (struct intr_frame *f)
             }
 
             pagedir_set_dirty(t->pagedir, fault_addr, false);
-            e->loaded = true;;
+            f->pinned = false;
+            return;
         }
     }else if(!not_present) /* Rights violation error */
     {

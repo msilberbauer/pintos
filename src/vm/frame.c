@@ -29,20 +29,21 @@ void frame_table_init(void)
 /* Finds a victim page in the physical memory */
 struct frame *vm_frame_pick_victim(void)
 {
-    /* TODO some kind of policy for eviction */
-    lock_acquire(&frame_table_lock);
+    lock_acquire(&eviction_lock);
     struct list_elem *e = list_head(&frame_table);
     struct frame *chosen = list_entry(e, struct frame, elem);
         
     for (e = list_begin (&frame_table); e != list_end (&frame_table);
            e = list_next (e))
-    {        
+    {
         struct frame *f = list_entry(e, struct frame, elem);
-
-        if(f->references < chosen->references)
+        
+        
+        if(!f->pinned && f->references < chosen->references)
         {
             chosen = f;
         }
+        
         /*
         if(pagedir_is_dirty(f->thread->pagedir, f->uaddr) &&
            f != NULL)
@@ -51,7 +52,8 @@ struct frame *vm_frame_pick_victim(void)
         }*/
         
     }
-    lock_release(&frame_table_lock);
+    //  lock_release(&frame_table_lock);
+    lock_release(&eviction_lock);
     return chosen;
 }
 
@@ -90,6 +92,9 @@ void *vm_frame_evict(const void *new_uaddr)
     /* Find a victim page in the physical memory */
     struct frame *victim = vm_frame_pick_victim();    
     ASSERT(victim != NULL);
+    victim->pinned = true;
+    struct spt_entry *spte = page_lookup(victim->uaddr);
+    ASSERT(spte != NULL);
     
     bool dirty = pagedir_is_dirty(victim->thread->pagedir, victim->uaddr);
     
@@ -103,17 +108,19 @@ void *vm_frame_evict(const void *new_uaddr)
         {
             /* To file system */
             /*
-            lock_acquire(&filesys_lock);
+            //lock_acquire(&filesys_lock);
             file_write_at(spt_entry->file,
                           victim->uaddr,
                           spt_entry->read_bytes,
                           spt_entry->offset);
-            lock_release(&filesys_lock);
+            //lock_release(&filesys_lock);
             */
 
             /* To swap disk */
+
             spt_entry->type = SWAP;
             swap_write(victim->uaddr); /* Swap out the victim page to the swap disk */
+
         }   
     }
     if(spt_entry->type == SWAP)
@@ -121,6 +128,7 @@ void *vm_frame_evict(const void *new_uaddr)
         /* Swap out the victim page to the swap disk */
         int bitmap_index = swap_write(victim->uaddr);
         spt_entry->bitmap_index = bitmap_index;
+        
     }
     /* TODO If zero */
     /* TODO If memory */
@@ -133,6 +141,7 @@ void *vm_frame_evict(const void *new_uaddr)
     /* We update the victim frame */
     victim->thread = thread_current();
     victim->uaddr = new_uaddr;
+    victim->pinned = false;
     return victim->kpage;
 }
 
@@ -140,9 +149,13 @@ void *vm_frame_alloc(enum palloc_flags flags, const void *uaddr)
 {
     if(!(flags & PAL_USER))
     {
+        printf("Should not happen\n");
         return NULL;
     }
+
+    //lock_acquire(&frame_table_lock);
     void *kpage = palloc_get_page(flags);
+    //lock_release(&frame_table_lock);
     
     /* If it is NULL. There are no free frames. we need to evict a frame. */
     if(kpage == NULL)
@@ -163,14 +176,13 @@ void *vm_frame_alloc(enum palloc_flags flags, const void *uaddr)
         f->kpage = kpage;
         f->uaddr = uaddr;
 
-        lock_acquire(&frame_table_lock);
+        //lock_acquire(&frame_table_lock);
         list_push_front(&frame_table, &f->elem);
-        lock_release(&frame_table_lock);
+        //lock_release(&frame_table_lock);
   
         return kpage;
     }
 }
-
 
 void *vm_frame_free(void *frame)
 {
@@ -194,4 +206,44 @@ void *vm_frame_free(void *frame)
     lock_release(&frame_table_lock);
 }
 
+/* Called by process_exit */
+void vm_free_frames (struct thread *t)
+{
+    struct frame *f;
+    struct list_elem *e;
+    struct list_elem *next = NULL;
+    lock_acquire (&frame_table_lock);
+    for (e = list_begin (&frame_table); e != list_end (&frame_table);
+         e = next)
+    {
+        next = list_next (e);
 
+        f = list_entry(e, struct frame, elem);
+        ASSERT (f != NULL);
+
+        if (f->thread == t)
+        {
+            list_remove(e);
+            free(f);
+        }
+    }
+    lock_release (&frame_table_lock);
+}
+
+
+struct frame *get_frame(void* kpage)
+{
+    struct frame *f;
+    struct list_elem *e;
+    lock_acquire (&frame_table_lock);
+    for (e = list_begin (&frame_table); e != list_end (&frame_table);
+         e = list_next (e))
+    {
+        f = list_entry (e, struct frame, elem);
+        if (f->kpage == kpage)
+            break;
+        f = NULL;
+    }
+    lock_release (&frame_table_lock);
+    return f;
+}

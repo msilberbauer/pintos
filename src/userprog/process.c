@@ -18,6 +18,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/page.h"
+#include "vm/frame.h"
 #include "lib/kernel/hash.h"
 #include <hash.h>
 
@@ -173,9 +174,12 @@ void process_exit (void)
            directory, or our active page directory will be one
            that's been freed (and cleared). */
         cur->pagedir = NULL;
-        pagedir_activate (NULL);
-        pagedir_destroy (pd);
+        pagedir_activate(NULL);
+        pagedir_destroy(pd);
+        vm_free_frames(cur);
     }
+
+    free_spt(&cur->spt);
 }
 
 /* Sets up the CPU for running user code in the current

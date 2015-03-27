@@ -57,3 +57,14 @@ bool spt_entry_less (const struct hash_elem *a_, const struct hash_elem *b_,
 
     return a->upage < b->upage;
 }
+
+void free_spt_entry(struct hash_elem *elem, void *aux UNUSED)
+{
+    struct spt_entry *page = hash_entry(elem, struct spt_entry, elem);
+    free(page);
+}
+
+void free_spt(struct hash *spt)
+{
+    hash_destroy(spt, free_spt_entry);
+}

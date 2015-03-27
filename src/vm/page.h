@@ -40,5 +40,8 @@ bool spt_entry_less(const struct hash_elem *, const struct hash_elem *, void *au
 bool insert_page(struct file *file, off_t offset, uint8_t *upage,
                  uint32_t read_bytes, uint32_t zero_bytes, bool writable, enum spt_type type);
 struct spt_entry *page_lookup (const void *address);
+void free_spt_entry(struct hash_elem *elem, void *aux UNUSED);
+void free_spt(struct hash *spt);
+
 
 #endif

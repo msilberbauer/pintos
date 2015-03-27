@@ -288,6 +288,16 @@ void exit(int status)
     {
         close(i);
     }
+
+    /* Release all locks */
+    struct list_elem *e;
+    for (e = list_begin(&cur->locks);
+         e != list_end(&cur->locks);
+         e = list_next(e))
+    {
+        struct lock *lock = list_entry(e, struct lock, lockelem);
+        lock_release(lock);
+    }
     
     thread_exit();
 }

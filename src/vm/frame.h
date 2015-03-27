@@ -11,6 +11,8 @@ void *vm_frame_free(void *frame);
 void *vm_frame_evict(const void *uaddr);
 struct frame *vm_frame_pick_victim(void);
 void vm_frame_age(int64_t cur);
+void vm_free_frames(struct thread *t);
+struct frame *get_frame(void *kpage);
 
 struct frame
 {
@@ -19,4 +21,7 @@ struct frame
     struct thread *thread;
     void *uaddr;
     char references;        /* LRU (aging bits) */
+    bool pinned;            /* Whether this frame is pinned.
+                               i.e. locked, and should not be
+                               evicted */
 };
