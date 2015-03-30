@@ -168,7 +168,6 @@ static void timer_interrupt (struct intr_frame *args UNUSED)
 {    
     ticks++;
     int64_t nowtick = timer_ticks();
-    vm_frame_age(nowtick);
     thread_tick(nowtick);
 }
 

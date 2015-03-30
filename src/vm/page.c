@@ -1,70 +1,195 @@
 #include <debug.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
+#include "threads/interrupt.h"
+#include "threads/thread.h"
 #include "threads/malloc.h"
 #include "threads/synch.h"
 #include "threads/palloc.h"
 #include "lib/kernel/list.h"
 #include "userprog/pagedir.h"
+#include "userprog/syscall.h"
+#include "vm/frame.h"
 #include "vm/page.h"
+#include "vm/swap.h"
 #include "threads/vaddr.h"
 
-bool insert_page(struct file *file, off_t offset, uint8_t *upage,
-                 size_t read_bytes, size_t zero_bytes, bool writable, enum spt_type type)
+bool insert_file_spte(struct file *file, off_t offset, uint8_t *uaddr,
+		      size_t read_bytes, size_t zero_bytes, bool writable)
 {
-    struct thread *t = thread_current();
-    
-    struct spt_entry *e = malloc(sizeof(struct spt_entry));
-    e->file = file;
-    e->offset = offset;
-    e->upage = upage;
-    e->read_bytes = read_bytes;
-    e->zero_bytes = zero_bytes;
-    e->writable = writable;
-    e->type = type;
-    e->loaded = true;
-    
-    return hash_insert(&t->spt, &e->elem) == NULL;
+    struct spt_entry *spte = malloc(sizeof(struct spt_entry));
+    if(spte == NULL)
+    {
+        return false;
+    }
+    spte->file = file;
+    spte->offset = offset;
+    spte->uaddr = uaddr;
+    spte->read_bytes = read_bytes;
+    spte->zero_bytes = zero_bytes;
+    spte->writable = writable;
+    spte->loaded = false;
+    spte->type = FS;
+    spte->pinned = false;
+
+    return hash_insert(&thread_current()->spt, &spte->elem) == NULL;
 }
 
-/* Returns the page containing the given virtual address,
-   or a null pointer if no such page exists. From Pintos manual */
-struct spt_entry *page_lookup(const void *address)
+bool insert_mmap_spte(struct file *file, off_t offset, uint8_t *uaddr,
+                      size_t read_bytes, size_t zero_bytes)
 {
-    struct thread *t = thread_current();
-    
+    // TODO
+    return true;
+}
+
+struct spt_entry *spte_lookup(void *uaddr)
+{    
     struct spt_entry p;
     struct hash_elem *e;
-  
-    p.upage = pg_round_down(address);
-    e = hash_find (&t->spt, &p.elem);
+    p.uaddr = pg_round_down(uaddr);
+    e = hash_find(&thread_current()->spt, &p.elem);
     return e != NULL ? hash_entry (e, struct spt_entry, elem) : NULL;
 }
 
-/* Returns a hash value for page p. From Pintos manual */
-unsigned spt_entry_hash (const struct hash_elem *p_, void *aux UNUSED)
+static unsigned spte_hash_func(const struct hash_elem *e, void *aux UNUSED)
 {
-    const struct spt_entry *p = hash_entry (p_, struct spt_entry, elem);
-    return hash_bytes (&p->upage, sizeof p->upage);
+    struct spt_entry *spte = hash_entry(e, struct spt_entry,
+                                             elem);
+    return hash_bytes (&spte->uaddr, sizeof spte->uaddr);
 }
 
-/* Returns true if page a precedes page b. From Pintos manual */
-bool spt_entry_less (const struct hash_elem *a_, const struct hash_elem *b_,
-           void *aux UNUSED)
+static bool spte_less_func(const struct hash_elem *a_,
+			   const struct hash_elem *b_,
+			   void *aux UNUSED)
 {
     const struct spt_entry *a = hash_entry (a_, struct spt_entry, elem);
     const struct spt_entry *b = hash_entry (b_, struct spt_entry, elem);
-
-    return a->upage < b->upage;
+    return a->uaddr < b->uaddr;
 }
 
-void free_spt_entry(struct hash_elem *elem, void *aux UNUSED)
+bool grow_stack(void *uaddr)
 {
-    struct spt_entry *page = hash_entry(elem, struct spt_entry, elem);
-    free(page);
+    /* is the stack full? */
+    if((size_t) (PHYS_BASE - pg_round_down(uaddr)) > MAX_STACK_SIZE)
+    {        
+        return false;
+    }
+
+    struct spt_entry *spte = malloc(sizeof(struct spt_entry));
+    if(spte == NULL)
+        return false;
+ 
+    spte->uaddr = pg_round_down(uaddr);
+    spte->loaded = true;
+    spte->writable = true;
+    spte->type = SWAP;
+    spte->pinned = true;
+
+    uint8_t *frame = frame_alloc(PAL_USER, spte);
+    if(frame == NULL)
+    {
+        free(spte);
+        return false;
+    }
+
+    if(!install_page(spte->uaddr, frame, spte->writable))
+    {
+        free(spte);
+        frame_free(frame);
+        return false;
+    }
+
+    return hash_insert(&thread_current()->spt, &spte->elem) == NULL;
 }
 
-void free_spt(struct hash *spt)
+static void free_spte(struct hash_elem *e, void *aux UNUSED)
 {
-    hash_destroy(spt, free_spt_entry);
+    struct spt_entry *spte = hash_entry(e, struct spt_entry, elem);
+    if(spte->loaded)
+    {
+        frame_free(pagedir_get_page(thread_current()->pagedir, spte->uaddr));
+        pagedir_clear_page(thread_current()->pagedir, spte->uaddr);
+    }
+    free(spte);
+}
+
+void init_spt(struct hash *spt)
+{
+    hash_init(spt, spte_hash_func, spte_less_func, NULL);
+}
+
+void destroy_spt(struct hash *spt)
+{
+    hash_destroy(spt, free_spte);
+}
+
+bool load_page(struct spt_entry *spte)
+{    
+    if(spte->loaded)
+        return false;
+    
+    spte->pinned = true;
+    bool success = false;
+    switch(spte->type)
+    {
+        case FS:
+            success = load_file(spte);
+            break;
+        case SWAP:
+            success = load_swap(spte);
+            break;
+        case MMAP:
+            //TODO
+            break;
+    }
+    spte->pinned = false;
+    return success;
+}
+
+bool load_swap(struct spt_entry *spte)
+{
+    uint8_t *frame = frame_alloc(PAL_USER, spte);
+    if (!frame)
+    {
+        return false;
+    }
+    if (!install_page(spte->uaddr, frame, spte->writable))
+    {
+        frame_free(frame);
+        return false;
+    }
+    swap_read(spte->bitmap_index, spte->uaddr);
+    spte->loaded = true;
+    return true;
+}
+
+bool load_file(struct spt_entry *spte)
+{    
+    uint8_t *frame = frame_alloc(PAL_USER, spte);
+    if(!frame)
+    {
+        return false;
+    }
+
+    lock_acquire(&filesys_lock);
+    if(spte->read_bytes != file_read_at(spte->file, frame,
+                                        spte->read_bytes,
+                                        spte->offset))
+    {
+        lock_release(&filesys_lock);
+        frame_free(frame);
+        return false;
+    }
+    lock_release(&filesys_lock);
+    memset(frame + spte->read_bytes, 0, spte->zero_bytes); 
+
+    if(!install_page(spte->uaddr, frame, spte->writable))
+    {
+        frame_free(frame);
+        return false;
+    }
+
+    spte->loaded = true;  
+    return true;
 }

@@ -6,22 +6,15 @@
 #include <stdbool.h>
 
 void frame_table_init(void);
-void *frame_alloc(enum palloc_flags flags, const void *uadd);
-void *vm_frame_free(void *frame);
-void *vm_frame_evict(const void *uaddr);
-struct frame *vm_frame_pick_victim(void);
-void vm_frame_age(int64_t cur);
-void vm_free_frames(struct thread *t);
-struct frame *get_frame(void *kpage);
+void *frame_alloc(enum palloc_flags flags, struct spt_entry *spte);
+void frame_free(void *frame);
+void *frame_evict(enum palloc_flags flags);
+struct frame_entry *frame_pick_victim(void);
 
-struct frame
+struct frame_entry
 {
     void *kpage;
     struct list_elem elem;
     struct thread *thread;
-    void *uaddr;
-    char references;        /* LRU (aging bits) */
-    bool pinned;            /* Whether this frame is pinned.
-                               i.e. locked, and should not be
-                               evicted */
+    struct spt_entry *spte;
 };

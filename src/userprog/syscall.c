@@ -13,29 +13,35 @@
 #define MAX_OPEN_FILES 9
 
 static void syscall_handler (struct intr_frame *);
-int open (const char *file);
+int open(const char *file);
 int write(int fd, const void *buffer, unsigned size);
 int filesize(int fd);
-int read (int fd, void *buffer, unsigned size, void * sp);
+int read(int fd, void *buffer, unsigned size, void * sp);
 void exit(int status);
 bool create(const char *file, unsigned initial_size);
 void close(int fd);
 void is_valid_fd(int fd);
 int exec(const char *cmd_line);
 void seek(int fd, unsigned position);
-bool is_valid_ptr (const void *ptr);
+bool remove(const char *file);
+unsigned tell(int fd);
+bool is_valid_ptr(const void *ptr);
+void is_valid_buffer(void *buffer, unsigned size, bool to_write);
+void is_valid_string(const void *string);
 
-void syscall_init (void)
+void syscall_init(void)
 {
     lock_init(&filesys_lock);
-    intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+    intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
+
+uint32_t *sp;
 
 /* The system call handler. System calls that return a value can do so
    by modifying the "eax" member of struct intr_frame. */
-static void syscall_handler (struct intr_frame *f UNUSED)
+static void syscall_handler(struct intr_frame *f UNUSED)
 {  
-    uint32_t *sp = f->esp;
+    sp = f->esp;
     is_valid_ptr((const void *)f->esp);
     
     /* The stack pointer points to the systemcallnumber */    
@@ -55,6 +61,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            if(is_valid_ptr (sp + 1))
            {
                is_valid_ptr((char *) *(sp + 1));
+               is_valid_string((char *) *(sp + 1));
                f->eax = exec((char *) *(sp + 1));
            }
            break;
@@ -67,16 +74,23 @@ static void syscall_handler (struct intr_frame *f UNUSED)
               is_valid_ptr(sp + 2))
            {
                is_valid_ptr((char *) *(sp + 1));
+               is_valid_string((char *) *(sp + 1));
                f->eax = create((char *) *(sp + 1), *(sp + 2));
            }
            break;
        case SYS_REMOVE :
-           // TODO: Do something
-           break;
+           if(is_valid_ptr (sp + 1))
+           {
+               is_valid_ptr((char *) *(sp + 1));
+               is_valid_string((char *) *(sp + 1));
+               f->eax = remove((char *) *(sp + 1));               
+           }
+           break;           
        case SYS_OPEN :
            if(is_valid_ptr(sp + 1))
            {
                is_valid_ptr((const char *) *(sp + 1));
+               is_valid_string((const char *) *(sp + 1));
                f->eax = open((const char *) *(sp + 1));
            }               
            break;           
@@ -94,7 +108,7 @@ static void syscall_handler (struct intr_frame *f UNUSED)
                f->eax = read(*(sp + 1),
                               (void *) *(sp + 2),
                              *(sp + 3),
-                               sp);               
+                               sp);
            }
            break;
        case SYS_WRITE :
@@ -111,11 +125,14 @@ static void syscall_handler (struct intr_frame *f UNUSED)
            if(is_valid_ptr (sp + 1) &&
                is_valid_ptr (sp + 2))
            {
-               seek (*(sp + 1), *(sp + 2));
+               seek(*(sp + 1), *(sp + 2));
            }
            break;
        case SYS_TELL :
-           // TODO: Do something
+           if(is_valid_ptr (sp + 1))
+           {
+               tell(*(sp + 1));
+           }           
            break;
        case SYS_CLOSE :
            if(is_valid_ptr (sp + 1))
@@ -132,7 +149,6 @@ int open (const char *file)
 {
     lock_acquire(&filesys_lock);    
     struct file *f = filesys_open(file);
-    lock_release(&filesys_lock);
 
     if(f != NULL)
     {
@@ -141,12 +157,13 @@ int open (const char *file)
         {
             if(thread_current()->fdtable[i] == NULL)
             {
-                thread_current()->fdtable[i] = f;                
+                thread_current()->fdtable[i] = f;
+                lock_release(&filesys_lock);
                 return i;
             }
         }
     }    
-
+    lock_release(&filesys_lock);
     return -1;
 }
 
@@ -156,14 +173,10 @@ int open (const char *file)
 int write(int fd, const void *buffer, unsigned size)
 {
     is_valid_fd(fd);
-
+    is_valid_buffer(buffer, size, false);
+    
     /* Might cause problems if it is possible to change the meaning of
        fd 0 and fd 1. fx writing to files instead of console etc. */  
-
-    if(!is_valid_ptr (buffer) && !is_valid_ptr (buffer + size))
-    {
-        exit(-1);
-    }    
     if(fd == STDIN_FILENO) /* Can't write to stdin */
     {
         return -1;
@@ -183,7 +196,7 @@ int write(int fd, const void *buffer, unsigned size)
             return 0;
         }
 
-        off_t written = file_write (f, buffer, size);        
+        off_t written = file_write(f, buffer, size);        
         lock_release(&filesys_lock);        
         
         return written; /* Returns number of bytes written */
@@ -200,51 +213,10 @@ int write(int fd, const void *buffer, unsigned size)
 int read (int fd, void *buffer, unsigned size, void *sp) 
 {
     is_valid_fd(fd);
-
+    is_valid_buffer(buffer, size, true);
+    
     /* Might cause problems if it is possible to change the meaning of
-       fd 0 and fd 1. fx writing to files instead of console etc. */  
-
-    if(!is_user_vaddr(buffer))
-    {
-        exit(-1);
-    }   
-    
-    struct spt_entry *page = page_lookup(buffer);
-    
-    /* Do we have to expand the stack? */
-    if(page == NULL && sp-32 <= buffer)
-    {        
-        void *rd_buffer = pg_round_down(buffer);
-        struct thread *cur = thread_current();
-  
-        int count;
-        for(count = 0;
-            is_user_vaddr(rd_buffer + count) &&
-            page_lookup(rd_buffer + count) == NULL;
-            count += PGSIZE)
-        {
-            
-            /* Have we run out of stack space? */
-            if(PHYS_BASE - buffer > MAX_STACK_SIZE)
-            {
-                exit(-1);
-            }
-            
-            void *frame = vm_frame_alloc(PAL_USER | PAL_ZERO, rd_buffer);
-            if(frame != NULL)
-            {
-                bool success = (pagedir_get_page(cur->pagedir, rd_buffer + count) == NULL &&
-                                pagedir_set_page(cur->pagedir, rd_buffer + count, frame, true));
-                if(success)
-                {
-                    insert_page(NULL,0,rd_buffer,0,0,true, SWAP);
-                }else
-                {
-                    vm_frame_free(frame);
-                }
-            } 
-        }
-    }    
+       fd 0 and fd 1. fx writing to files instead of console etc. */      
     if(fd == STDIN_FILENO) // fd = 0
     {
         uint8_t *buf = (uint8_t *) buffer;
@@ -256,7 +228,6 @@ int read (int fd, void *buffer, unsigned size, void *sp)
 
         return size;
     }
-
     if(fd == STDOUT_FILENO) /* Can't read from stdout */
     {
         return -1;
@@ -265,7 +236,11 @@ int read (int fd, void *buffer, unsigned size, void *sp)
     {
         //lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
-
+        if(f == NULL)
+        {
+            return -1;
+            //lock_release(&filesys_lock);
+        }
         off_t read = file_read(f, buffer, size);
         
         /* Returns number of bytes read */
@@ -290,13 +265,26 @@ void exit(int status)
     }
 
     /* Release all locks */
-    struct list_elem *e;
-    for (e = list_begin(&cur->locks);
-         e != list_end(&cur->locks);
-         e = list_next(e))
+    struct list_elem *next;
+    struct list_elem *e = list_begin(&cur->locks);
+    while(e != list_end (&cur->locks))
     {
-        struct lock *lock = list_entry(e, struct lock, lockelem);
-        lock_release(lock);
+        next = list_next(e);
+        struct lock *l = list_entry (e, struct lock, lockelem);
+        lock_release(l);
+        list_remove(&l->lockelem);
+        e = next;
+    }
+
+    /* Remove all child its child processes */
+    e = list_begin(&cur->children);
+    while(e != list_end(&cur->children))
+    {
+        next = list_next(e);
+        struct process *cp = list_entry(e, struct process, elem);
+        list_remove(&cp->elem);
+        free(cp);
+        e = next;
     }
     
     thread_exit();
@@ -347,7 +335,7 @@ int exec(const char *cmd_line)
     
     int pid = process_execute(pagedir_get_page (thread_current()->pagedir, cmd_line));
     struct process *p = get_child(pid);
-    
+    ASSERT(p != NULL);
     /* Wait for the child to have been properly loaded */
     sema_down(&p->load);
     
@@ -363,7 +351,7 @@ int exec(const char *cmd_line)
     }    
 }
 
-void seek (int fd, unsigned position)
+void seek(int fd, unsigned position)
 {
     is_valid_fd(fd);
     
@@ -373,6 +361,28 @@ void seek (int fd, unsigned position)
         file_seek(thread_current()->fdtable[fd], position);
         lock_release(&filesys_lock);
     }
+}
+
+bool remove(const char *file)
+{
+    lock_acquire(&filesys_lock);
+    bool result = filesys_remove(file);
+    lock_release(&filesys_lock);
+    return result;
+}
+
+unsigned tell(int fd)
+{
+    lock_acquire(&filesys_lock);
+    is_valid_fd(fd);
+    if(thread_current()->fdtable[fd] != NULL)
+    {               
+        unsigned offset = file_tell(thread_current()->fdtable[fd]);
+        lock_release(&filesys_lock);
+        return offset;
+    }
+
+    lock_release(&filesys_lock);
 }
 
 void is_valid_fd(int fd)
@@ -385,13 +395,58 @@ void is_valid_fd(int fd)
 
 bool is_valid_ptr(const void *ptr)
 {
-    struct thread *t = thread_current();
-    if (ptr == NULL || !is_user_vaddr (ptr) || page_lookup (ptr) == NULL)
+    if(!is_user_vaddr(ptr) || ptr < 0x08048000)
     {
-        exit (-1);
+        exit(-1);
     	return false;
-    }else
+    }
+    bool success = false;
+    struct spt_entry *spte = spte_lookup(ptr);
+    if(spte)
     {
-        return true;
+        load_page(spte);
+        success = spte->loaded;
+    }
+    else if(ptr >= sp - 32)
+    {
+        success = grow_stack((void *) ptr);
+    }
+    if(!success)
+    {        
+        exit(-1);
+    }
+    
+    return true;
+}
+
+void is_valid_buffer(void *buffer, unsigned size, bool to_write)
+{    
+    char *buf = (char *) buffer;
+    unsigned i;
+    for(i = 0; i < size; i++)
+    {
+        if(is_valid_ptr((const void *) buf))
+        {
+            struct spt_entry *spte = spte_lookup((const void *) buf);
+            if(spte && to_write)
+            {
+                if(!spte->writable)
+                {
+                    exit(-1);
+                }
+            }            
+        }
+
+        buf++;
+    }
+}
+
+void is_valid_string(const void *string)
+{
+    is_valid_ptr(string);
+    while(*(char *) string != 0)
+    {
+        string = (char *) string + 1;
+        is_valid_ptr(string);
     }
 }

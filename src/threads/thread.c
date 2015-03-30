@@ -251,6 +251,8 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     
     tid = t->tid = allocate_tid ();
 
+    enum intr_level old_level = intr_disable ();
+    
     /* Stack frame for kernel_thread(). */
     kf = alloc_frame (t, sizeof *kf);
     kf->eip = NULL;
@@ -266,6 +268,7 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     sf->eip = switch_entry;
     sf->ebp = 0;
 
+    intr_set_level (old_level);
 
     struct process *p = malloc(sizeof(struct process));
     p->pid = t->tid;

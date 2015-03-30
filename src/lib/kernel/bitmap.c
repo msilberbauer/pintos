@@ -197,7 +197,12 @@ bitmap_flip (struct bitmap *b, size_t bit_idx)
 bool
 bitmap_test (const struct bitmap *b, size_t idx) 
 {
+    
   ASSERT (b != NULL);
+  if(!(idx < b->bit_cnt))
+  {
+      printf("idx: %d   bit_cnt: %d\n", idx, b->bit_cnt);
+  }
   ASSERT (idx < b->bit_cnt);
   return (b->bits[elem_idx (idx)] & bit_mask (idx)) != 0;
 }

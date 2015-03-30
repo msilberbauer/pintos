@@ -17,7 +17,6 @@ static long long page_fault_cnt;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
-static void fail (struct intr_frame *f);
 
 /* Registers handlers for interrupts that can be caused by user
    programs.
@@ -162,136 +161,25 @@ static void page_fault (struct intr_frame *f)
   write ? "writing" : "reading",
   user ? "user" : "kernel");
 */
-    
-    if(fault_addr == 0)
-    {
-        fail(f);
-    }
 
     /* Is it a missing page and is it in user space?
        0x08048000 is bottom of user program */
-    if(not_present && fault_addr < PHYS_BASE && fault_addr > 0x08048000)
+    bool success = false;
+    if (not_present && is_user_vaddr(fault_addr) &&
+        fault_addr > 0x08048000)
     {
-        struct thread *t = thread_current ();
-        struct spt_entry *e = page_lookup(fault_addr);
-        if(e == NULL)
-        {
-            if(fault_addr >= f->esp - 32) /* Is it a stack access? */
-            {                
-                /* Have we run out of stack space? */
-                if(PHYS_BASE - fault_addr > MAX_STACK_SIZE)
-                {
-                    if(!user) 
-                    {
-                        /* Page fault occurred in kernel mode. */
-                        exit(-1);
-                    }else
-                    {                   
-                        fail(f);
-                    }                 
-                }
-                
-                /* Time to grow stack */
-                uint8_t *kpage;                
-                uint8_t *upage = pg_round_down(fault_addr);
-                
-                kpage = vm_frame_alloc(PAL_USER | PAL_ZERO, upage);
-                
-                if (kpage != NULL)
-                {        
-                    bool success = (pagedir_get_page (t->pagedir, upage) == NULL &&
-                               pagedir_set_page (t->pagedir, upage, kpage, true));
-                    
-                    if (success)
-                    {
-                        insert_page(NULL,0,upage,0,0,true, FS);
-                    }else
-                    {
-                        vm_frame_free(kpage);
-                        fail(f);
-                    }         
-                }
-            }else
-            {
-                if(!user)
-                {
-                    /* Page fault occurred in kernel mode. */
-                    exit(-1);
-                }else
-                {                    
-                    fail(f);
-                }
-            }                        
-        }else
-        {
-            /* Get a page/frame of memory. */
-            //e->loaded = false;            
-            uint8_t *kpage = vm_frame_alloc(PAL_USER, e->upage);
-            if (kpage == NULL)
-            {
-                printf("no kpage\n");
-                fail(f);
-            }
-
-            struct frame *f = get_frame(kpage);
-            f->pinned = true;
-            if(pagedir_set_page(t->pagedir, e->upage, kpage, e->writable) == NULL)
-            {
-                printf("could not set pagedir\n");
-                fail(f);
-            }
-            
-            bool test = false;
-            switch(e->type)
-            {
-                case FS:
-                    /* Load this page. */
-                    
-                    //if (!lock_held_by_current_thread (&filesys_lock))
-                    //    lock_acquire (&filesys_lock);
-                    if(file_read_at(e->file, kpage, e->read_bytes, e->offset) != e->read_bytes)
-                    {
-                        lock_release(&filesys_lock);
-                        vm_frame_free(kpage);
-                        printf("There was a huge mistake\n");
-                        fail(f);
-                        return;
-                    }
-                    //if (!lock_held_by_current_thread (&filesys_lock))
-                    //    lock_release (&filesys_lock);
-                    //lock_release(&filesys_lock);
-                    memset (kpage + e->read_bytes, 0, e->zero_bytes);                    
-                break;
-                case SWAP: /* swap in the page from the swap disk to the physical memory */
-                    swap_read(e->bitmap_index, fault_addr);
-                    
-                    break;                
-                case ZERO:
-                    memset(fault_addr, 0, PGSIZE);
-                    break;
-            }
-
-            pagedir_set_dirty(t->pagedir, fault_addr, false);
-            f->pinned = false;
-            return;
-        }
-    }else if(!not_present) /* Rights violation error */
+        struct spt_entry *spte = spte_lookup(fault_addr);
+        if(spte)
+	{
+            success = load_page(spte);
+	}
+        else if (fault_addr >= f->esp - 32)
+	{
+            success = grow_stack(fault_addr);
+	}
+    }
+    if (!success)
     {
-        if(!user)
-        {
-            /* Page fault occurred in kernel mode. */
-            exit(-1);
-        }else
-        {                   
-            fail(f);
-        }
-    }else 
-    {
-        fail(f);        
-    }    
-}
-
-static void fail (struct intr_frame *f)
-{    
-    kill (f);
+        kill(f);
+    }
 }
