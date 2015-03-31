@@ -113,6 +113,8 @@ struct thread
 #endif
 
     struct hash spt;                    /* Supplemental page table */
+    struct list mmaps;                  /* List of its current memory mappings */
+    int cur_mmapid;
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 };

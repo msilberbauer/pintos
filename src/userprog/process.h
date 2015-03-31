@@ -3,7 +3,14 @@
 
 #include "threads/thread.h"
 #include "threads/synch.h"
+#include "vm/page.h"
 
+struct mmap_file
+{
+    int mmid;
+    struct spt_entry *spte;
+    struct list_elem elem;
+};
 
 struct process
 {

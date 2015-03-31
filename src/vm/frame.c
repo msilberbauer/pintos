@@ -71,8 +71,10 @@ struct frame_entry *frame_pick_victim(void)
 
 void *frame_evict(enum palloc_flags flags)
 {
+    lock_acquire(&frame_table_lock);
     struct frame_entry *victim = frame_pick_victim();
-     
+    lock_release(&frame_table_lock);
+    
     bool dirty = pagedir_is_dirty(victim->thread->pagedir, victim->spte->uaddr);     
     if(victim->spte->type == FS)
     {
@@ -92,15 +94,16 @@ void *frame_evict(enum palloc_flags flags)
         
     }else if(victim->spte->type == MMAP)
     {
-        /* To file system */
-        /* TODO
-        //lock_acquire(&filesys_lock);
-        file_write_at(spt_entry->file,
-        victim->spte->uaddr,
-        spt_entry->read_bytes,
-        spt_entry->offset);
-        //lock_release(&filesys_lock);
-        */
+        if(dirty)
+        {
+            /* To file system */            
+            lock_acquire(&filesys_lock);
+            file_write_at(victim->spte->file,
+                          victim->spte->uaddr,
+                          victim->spte->read_bytes,
+                          victim->spte->offset);
+            lock_release(&filesys_lock);
+        }        
     }
 
     victim->spte->loaded = false;
@@ -113,20 +116,21 @@ void *frame_evict(enum palloc_flags flags)
 
 void frame_free(void *frame)
 {
-    struct list_elem *e;
-  
+    struct list_elem *e = list_begin(&frame_table);
+    struct list_elem *next;
     lock_acquire(&frame_table_lock);
-    for (e = list_begin(&frame_table); e != list_end(&frame_table);
-         e = list_next(e))
+    while(e != list_end(&frame_table))
     {
+        next = list_next(e);
         struct frame_entry *fte = list_entry(e, struct frame_entry, elem);
         if (fte->kpage == frame)
 	{
             list_remove(e);
             free(fte);
             palloc_free_page(frame);
-            break;
 	}
+
+        e = next;
     }
     lock_release(&frame_table_lock);
 }
@@ -142,9 +146,8 @@ void *frame_alloc(enum palloc_flags flags, struct spt_entry *spte)
     /* If it is NULL. There are no free frames. we need to evict a frame. */
     if(kpage == NULL)
     {
-        lock_acquire(&frame_table_lock);
         kpage = frame_evict(flags);
-        lock_release(&frame_table_lock);
+        
         if(kpage == NULL)
         {
             PANIC("Could not allocate frame.");

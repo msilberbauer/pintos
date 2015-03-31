@@ -28,6 +28,8 @@ unsigned tell(int fd);
 bool is_valid_ptr(const void *ptr);
 void is_valid_buffer(void *buffer, unsigned size, bool to_write);
 void is_valid_string(const void *string);
+int mmap(int fd, void *addr);
+void munmap(int mapping);
 
 void syscall_init(void)
 {
@@ -140,6 +142,19 @@ static void syscall_handler(struct intr_frame *f UNUSED)
                close(*(sp + 1));
            }
            break;
+       case SYS_MMAP :
+           if(is_valid_ptr (sp + 1) &&
+              is_valid_ptr (sp + 2))
+           {
+               f->eax = mmap(*(sp + 1),(void *) *(sp + 2));
+           }
+           break;
+        case SYS_MUNMAP :
+            if(is_valid_ptr (sp + 1))
+            {
+                munmap(*(sp + 1));
+            }
+        break;
        default :
            exit(-1);
     }
@@ -238,8 +253,9 @@ int read (int fd, void *buffer, unsigned size, void *sp)
         struct file *f = thread_current()->fdtable[fd];
         if(f == NULL)
         {
-            return -1;
             //lock_release(&filesys_lock);
+            return -1;
+            
         }
         off_t read = file_read(f, buffer, size);
         
@@ -286,7 +302,35 @@ void exit(int status)
         free(cp);
         e = next;
     }
-    
+
+    /* Remove all memory maps */
+    e = list_begin(&cur->mmaps);
+    while(e != list_end(&cur->mmaps))
+    {
+        next = list_next(e);
+        struct mmap_file *mm = list_entry (e, struct mmap_file, elem);
+
+        /* If dirty we write back to the file on the file system */
+        if(pagedir_is_dirty(cur->pagedir, mm->spte->uaddr))
+        {
+            lock_acquire(&filesys_lock);
+            file_write_at(mm->spte->file,
+                          mm->spte->uaddr,
+                          mm->spte->read_bytes,
+                          mm->spte->offset);
+            lock_release(&filesys_lock);
+        }
+
+        frame_free(pagedir_get_page(cur->pagedir, mm->spte->uaddr));
+        pagedir_clear_page(cur->pagedir, mm->spte->uaddr);
+        remove_spte(&cur->spt, mm->spte);
+        free(mm->spte);
+        list_remove(&mm->elem);
+        free(mm);
+
+        e = next;
+    }   
+        
     thread_exit();
 }
 
@@ -383,6 +427,101 @@ unsigned tell(int fd)
     }
 
     lock_release(&filesys_lock);
+}
+
+int mmap(int fd, void *addr)
+{
+    is_valid_fd(fd);
+    if(!is_user_vaddr(addr) || addr < 0x08048000 ||
+       ((int) addr) % PGSIZE != 0) // Page aligned
+    {
+        return -1;
+    }
+        
+    struct file *old_file = thread_current()->fdtable[fd];
+    if(old_file == NULL)
+    {        
+        return -1;
+    }
+
+    lock_acquire(&filesys_lock);
+    struct file *file = file_reopen(old_file);
+    if(file == NULL)
+    {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+    
+    off_t read_bytes = file_length(file);
+    if(read_bytes == 0)
+    {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+
+    lock_release(&filesys_lock);
+    int ofs = 0;
+    while(read_bytes > 0)
+    {
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;
+        
+        if(!insert_mmap_spte(file, ofs, addr, page_read_bytes, page_zero_bytes))
+        {
+            // possibly unmap here
+            return -1;
+        }
+        
+        /* Advance. */
+        read_bytes -= page_read_bytes;
+        addr += PGSIZE;
+        ofs += page_read_bytes;
+    }
+    
+    int mmid = thread_current()->cur_mmapid;
+    thread_current()->cur_mmapid++;
+    return mmid;
+    
+}
+
+void munmap(int mapping)
+{
+    /* When a mapping is unmapped, whether implicitly or explicitly,
+       all pages written to by the process are written back to the file,
+       and pages not written must not be. The pages are then removed
+       from the process's list of virtual pages. */
+
+    struct thread *cur = thread_current();
+    struct list_elem *e = list_begin(&cur->mmaps);
+    struct list_elem *next;
+    while(e != list_end(&cur->mmaps))
+    {
+        next = list_next(e);
+        struct mmap_file *mm = list_entry (e, struct mmap_file, elem);
+
+        if(mm->mmid == mapping)
+        {
+            /* If dirty we write back to the file on the file system */
+            if(pagedir_is_dirty(cur->pagedir, mm->spte->uaddr))
+            {
+                lock_acquire(&filesys_lock);
+                file_write_at(mm->spte->file,
+                              mm->spte->uaddr,
+                              mm->spte->read_bytes,
+                              mm->spte->offset);
+                lock_release(&filesys_lock);
+            }
+
+            frame_free(pagedir_get_page(cur->pagedir, mm->spte->uaddr));
+            pagedir_clear_page(cur->pagedir, mm->spte->uaddr);
+            remove_spte(&cur->spt, mm->spte);
+            free(mm->spte);
+            list_remove(&mm->elem);
+            free(mm);            
+        }
+
+        e = next;
+    }      
 }
 
 void is_valid_fd(int fd)

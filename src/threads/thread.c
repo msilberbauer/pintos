@@ -770,13 +770,10 @@ static void init_thread (struct thread *t, const char *name, int priority)
     
     t->original_priority = priority;
     list_init (&t->locks);
+    list_init (&t->mmaps);
     t->desiring_lock = NULL;
     t->wake_tick = 0;
 
-    //printf("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE\n");
-    
-    
-    
     t->magic = THREAD_MAGIC;
     
     list_init (&t->children);

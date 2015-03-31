@@ -10,6 +10,7 @@
 #include "lib/kernel/list.h"
 #include "userprog/pagedir.h"
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include "vm/frame.h"
 #include "vm/page.h"
 #include "vm/swap.h"
@@ -39,8 +40,33 @@ bool insert_file_spte(struct file *file, off_t offset, uint8_t *uaddr,
 bool insert_mmap_spte(struct file *file, off_t offset, uint8_t *uaddr,
                       size_t read_bytes, size_t zero_bytes)
 {
-    // TODO
-    return true;
+    struct spt_entry *spte = malloc(sizeof(struct spt_entry));
+    if(spte == NULL)
+    {
+        return false;
+    }
+    spte->file = file;
+    spte->offset = offset;
+    spte->uaddr = uaddr;
+    spte->read_bytes = read_bytes;
+    spte->zero_bytes = zero_bytes;
+    spte->writable = true;
+    spte->loaded = false;
+    spte->type = MMAP;
+    spte->pinned = false;
+
+    struct mmap_file *mmap = malloc(sizeof(struct mmap_file));
+    if(mmap == NULL)
+    {
+        free(spte);
+        return false;
+    }
+    
+    mmap->spte = spte;
+    mmap->mmid = thread_current()->cur_mmapid;
+    list_push_back(&thread_current()->mmaps, &mmap->elem);
+    
+    return hash_insert(&thread_current()->spt, &spte->elem) == NULL;
 }
 
 struct spt_entry *spte_lookup(void *uaddr)
@@ -72,14 +98,14 @@ bool grow_stack(void *uaddr)
 {
     /* is the stack full? */
     if((size_t) (PHYS_BASE - pg_round_down(uaddr)) > MAX_STACK_SIZE)
-    {        
+    {
         return false;
     }
 
     struct spt_entry *spte = malloc(sizeof(struct spt_entry));
     if(spte == NULL)
         return false;
- 
+    
     spte->uaddr = pg_round_down(uaddr);
     spte->loaded = true;
     spte->writable = true;
@@ -99,7 +125,7 @@ bool grow_stack(void *uaddr)
         frame_free(frame);
         return false;
     }
-
+    
     return hash_insert(&thread_current()->spt, &spte->elem) == NULL;
 }
 
@@ -124,6 +150,11 @@ void destroy_spt(struct hash *spt)
     hash_destroy(spt, free_spte);
 }
 
+void remove_spte(struct hash *spt, struct spt_entry *spte)
+{
+    hash_delete(spt, &spte->elem);
+}
+
 bool load_page(struct spt_entry *spte)
 {    
     if(spte->loaded)
@@ -140,7 +171,7 @@ bool load_page(struct spt_entry *spte)
             success = load_swap(spte);
             break;
         case MMAP:
-            //TODO
+            success = load_file(spte);
             break;
     }
     spte->pinned = false;
@@ -172,16 +203,16 @@ bool load_file(struct spt_entry *spte)
         return false;
     }
 
-    lock_acquire(&filesys_lock);
+    //lock_acquire(&filesys_lock);
     if(spte->read_bytes != file_read_at(spte->file, frame,
                                         spte->read_bytes,
                                         spte->offset))
     {
-        lock_release(&filesys_lock);
+        //lock_release(&filesys_lock);
         frame_free(frame);
         return false;
     }
-    lock_release(&filesys_lock);
+    //lock_release(&filesys_lock);
     memset(frame + spte->read_bytes, 0, spte->zero_bytes); 
 
     if(!install_page(spte->uaddr, frame, spte->writable))

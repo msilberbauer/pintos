@@ -50,5 +50,6 @@ bool load_swap(struct spt_entry *spte);
 bool load_file(struct spt_entry *spte);
 
 void init_spt(struct hash *spt);
-void destroy_spt(struct hash *spt);    
+void destroy_spt(struct hash *spt);
+void remove_spte(struct hash *spt, struct spt_entry *spte);
 #endif
