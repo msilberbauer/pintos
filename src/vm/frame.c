@@ -71,9 +71,9 @@ struct frame_entry *frame_pick_victim(void)
 
 void *frame_evict(enum palloc_flags flags)
 {
-    lock_acquire(&frame_table_lock);
+    
     struct frame_entry *victim = frame_pick_victim();
-    lock_release(&frame_table_lock);
+    
     
     bool dirty = pagedir_is_dirty(victim->thread->pagedir, victim->spte->uaddr);     
     if(victim->spte->type == FS)
@@ -146,12 +146,14 @@ void *frame_alloc(enum palloc_flags flags, struct spt_entry *spte)
     /* If it is NULL. There are no free frames. we need to evict a frame. */
     if(kpage == NULL)
     {
+        lock_acquire(&frame_table_lock);
         kpage = frame_evict(flags);
-        
-        if(kpage == NULL)
+        while(kpage == NULL)
         {
-            PANIC("Could not allocate frame.");
-        }        
+            kpage = frame_evict(flags);
+        }
+        lock_release(&frame_table_lock);
+     
     }
     
     struct frame_entry *fte = malloc(sizeof(struct frame_entry));
