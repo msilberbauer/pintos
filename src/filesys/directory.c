@@ -56,8 +56,7 @@ struct dir *dir_open_root (void)
 
 /* Opens and returns a new directory for the same inode as DIR.
    Returns a null pointer on failure. */
-struct dir *
-dir_reopen (struct dir *dir)
+struct dir *dir_reopen (struct dir *dir)
 {
     return dir_open (inode_reopen (dir->inode));
 }
