@@ -115,6 +115,8 @@ struct thread
     struct hash spt;                    /* Supplemental page table */
     struct list mmaps;                  /* List of its current memory mappings */
     int cur_mmapid;
+
+    struct dir *working_dir;             /* The current working directory */
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 };

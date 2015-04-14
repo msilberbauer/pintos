@@ -30,6 +30,11 @@ void is_valid_buffer(void *buffer, unsigned size, bool to_write);
 void is_valid_string(const void *string);
 int mmap(int fd, void *addr);
 void munmap(int mapping);
+bool chdir(const char *dir);
+bool mkdir(const char *dir);
+bool readdir(int fd, char *name);
+bool isdir(int fd);
+int inumber(int fd);
 
 void syscall_init(void)
 {
@@ -155,6 +160,44 @@ static void syscall_handler(struct intr_frame *f UNUSED)
                 munmap(*(sp + 1));
             }
         break;
+        case SYS_CHDIR :
+           if(is_valid_ptr(sp + 1))
+           {
+               is_valid_ptr((const char *) *(sp + 1));
+               is_valid_string((const char *) *(sp + 1));
+               f->eax = chdir((const char *) *(sp + 1));
+           }               
+           break;
+        case SYS_MKDIR :
+           if(is_valid_ptr(sp + 1))
+           {
+               is_valid_ptr((const char *) *(sp + 1));
+               is_valid_string((const char *) *(sp + 1));
+               f->eax = mkdir((const char *) *(sp + 1));
+           }               
+           break;
+        case SYS_READDIR:
+           if(is_valid_ptr(sp + 1) &&
+               is_valid_ptr(sp + 2))
+           {
+               is_valid_ptr((char *) *(sp + 2));
+               is_valid_string((char *) *(sp + 2));               
+               f->eax = readdir(*(sp + 1),
+                               (char *) *(sp + 2));
+           }
+           break;
+        case SYS_ISDIR :
+           if(is_valid_ptr (sp + 1))
+           {
+               f->eax = isdir(*(sp + 1));
+           }      
+           break;
+        case SYS_INUMBER :
+           if(is_valid_ptr (sp + 1))
+           {
+               f->eax = inumber(*(sp + 1));
+           }      
+           break;
        default :
            exit(-1);
     }
@@ -588,4 +631,34 @@ void is_valid_string(const void *string)
         string = (char *) string + 1;
         is_valid_ptr(string);
     }
+}
+
+bool chdir(const char *dir)
+{
+    // TODO
+    return true;
+}
+
+bool mkdir(const char *dir)
+{
+    // TODO
+    return true;
+}
+
+bool readdir(int fd, char *name)
+{
+    // TODO
+    return true;
+}
+
+bool isdir(int fd)
+{
+    // TODO
+    return true;
+}
+
+int inumber(int fd)
+{
+    // TODO
+    return true;
 }

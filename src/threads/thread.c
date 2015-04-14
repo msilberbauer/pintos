@@ -278,6 +278,16 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
     sema_init(&p->load, 0);
     list_push_back (&thread_current()->children, &p->elem);
     t->p = p;
+
+    if(t != initial_thread && strcmp(name, "idle") != 0)
+    {
+        /* Inherit working dir */
+        //t->working_dir = dir_reopen(thread_current()->working_dir);
+        if(t->working_dir == NULL)
+        {
+            t->working_dir = dir_open_root();      
+        }
+    }
     
     /* Add to run queue. */
     thread_unblock (t);
