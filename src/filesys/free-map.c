@@ -39,24 +39,13 @@ bool free_map_allocate (size_t cnt, block_sector_t *sectorp)
 }
 
 /* Makes CNT sectors starting at SECTOR available for use. */
-void free_map_release (block_sector_t *sectors, size_t cnt)
+void free_map_release(block_sector_t sector, size_t cnt)
 {
-    int i;
-    for(i = 0; i < cnt; i++)
-    {
-        bitmap_set(free_map, sectors[i], false);
-    }
-
-    bitmap_write (free_map, free_map_file);
+    ASSERT(bitmap_all(free_map, sector, cnt));
+    bitmap_set_multiple(free_map, sector, cnt, false);
+    bitmap_write(free_map, free_map_file);
 }
 
-/* Makes CNT sectors starting at SECTOR available for use. */
-void free_map_release (block_sector_t sector, size_t cnt)
-{
-    ASSERT (bitmap_all (free_map, sector, cnt));
-    bitmap_set_multiple (free_map, sector, cnt, false);
-    bitmap_write (free_map, free_map_file);
-}
 
 /* Opens the free map file and reads it from disk. */
 void free_map_open (void)
