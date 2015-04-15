@@ -18,6 +18,7 @@ struct inode_disk
 {
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
+//    enum inode_type type;               /* FILE or DIR */
     block_sector_t sectors[126];        /* Sectors */
 };
 
@@ -47,7 +48,6 @@ struct inode
 
 void shrink(struct inode_disk *, off_t length);
 bool grow(struct inode_disk *, off_t length);
-
 void shrink(struct inode_disk *disk_inode, off_t length)
 {
     int i;
@@ -337,7 +337,7 @@ void inode_init (void)
    device.
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
-bool inode_create (block_sector_t sector, off_t length)
+bool inode_create (block_sector_t sector, off_t length, enum inode_type type)
 {
     struct inode_disk *disk_inode = NULL;
     bool success = false;
@@ -353,6 +353,7 @@ bool inode_create (block_sector_t sector, off_t length)
     {
         disk_inode->length = 0;
         disk_inode->magic = INODE_MAGIC;
+//        disk_inode->type = type;
 
         int i;
         for(i = 0; i < 126; i++)
@@ -489,10 +490,8 @@ off_t inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offse
         {            
             return bytes_read;
         }
-        
-        
-            cache_read_partial(sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
-        
+                
+        cache_read_partial(sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
 
         /* Advance. */
         size -= chunk_size;

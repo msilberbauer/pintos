@@ -281,9 +281,11 @@ tid_t thread_create (const char *name, int priority, thread_func *function, void
 
     if(t != initial_thread && strcmp(name, "idle") != 0)
     {
-        /* Inherit working dir */
-        //t->working_dir = dir_reopen(thread_current()->working_dir);
-        if(t->working_dir == NULL)
+        if(thread_current()->working_dir != NULL)
+        {
+            /* Inherit working dir from parent */
+            t->working_dir = dir_reopen(thread_current()->working_dir);
+        }else
         {
             t->working_dir = dir_open_root();      
         }

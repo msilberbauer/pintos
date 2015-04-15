@@ -9,6 +9,7 @@
 #include "vm/page.h"
 #include "vm/frame.h"
 #include "userprog/exception.h"
+#include "filesys/directory.h"
 
 #define MAX_OPEN_FILES 9
 
@@ -208,6 +209,15 @@ int open (const char *file)
     lock_acquire(&filesys_lock);    
     struct file *f = filesys_open(file);
 
+    /* char *name = get_filename(file); */
+    /* struct dir *dir = get_dir(file, true); */
+    
+    /* struct inode *inode = NULL; */
+    /* dir_lookup(dir, name, &inode); */
+    /* dir_close(dir); */
+
+    //struct file *f = file_open(inode);
+    
     if(f != NULL)
     {
         int i;
@@ -633,15 +643,41 @@ void is_valid_string(const void *string)
     }
 }
 
-bool chdir(const char *dir)
+bool chdir(const char *s)
 {
-    // TODO
+    struct dir *dir = get_dir(s, false);
+    if(dir == NULL)
+    {
+        return false;
+    }
+    
+    dir_close(thread_current()->working_dir);
+    thread_current()->working_dir = dir;
     return true;
 }
 
-bool mkdir(const char *dir)
+bool mkdir(const char *path)
 {
-    // TODO
+    struct dir *cur_dir = get_dir(path, true);
+    char *new_dir = get_filename(path);
+    struct inode *inode;
+    block_sector_t sector = -1;
+
+    bool success = (cur_dir != NULL
+                    && !dir_lookup (cur_dir, new_dir, &inode)
+                    && free_map_allocate (1, &sector)
+                    && dir_create(sector, 16) //', cur_dir)
+                    && dir_add(cur_dir, new_dir, sector));
+
+    if(cur_dir)
+    {
+        dir_close (cur_dir);
+    }
+    if(!success && sector != -1)
+    {
+        free_map_release(&sector, 1);
+    }
+
     return true;
 }
 

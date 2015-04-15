@@ -1,10 +1,12 @@
 #include "filesys/directory.h"
+#include "filesys/inode.h"
 #include <stdio.h>
 #include <string.h>
 #include <list.h>
 #include "filesys/filesys.h"
 #include "filesys/inode.h"
 #include "threads/malloc.h"
+#include "threads/thread.h"
 
 /* A directory. */
 struct dir
@@ -25,7 +27,7 @@ struct dir_entry
    given SECTOR.  Returns true if successful, false on failure. */
 bool dir_create (block_sector_t sector, size_t entry_cnt)
 {
-    return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+    return inode_create (sector, entry_cnt * sizeof (struct dir_entry), DIR);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -222,4 +224,107 @@ bool dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
         }
     }
     return false;
+}
+
+char *get_filename(char *path)
+{
+    char *s = path;
+
+    char *result = path;
+    while(*s != '\0')
+    {
+        if(*s == '/')
+        {
+            result = s+1;
+        }
+
+        s++;
+    }
+
+    return result;   
+}
+
+
+char *get_dirname(char *path, bool ignore_last_token)
+{
+    char *s = path;
+
+    char *result = path;
+    int i = 0;
+    while(*s != '/')
+    {
+        if(*s == '\0' && ignore_last_token)
+        {
+            return NULL;
+        }else if(*s == '\0')
+        {
+            break;
+        }
+        
+        i++;
+        s++;
+    }
+
+    result[i] = '\0';
+
+    return result;   
+}
+
+
+struct dir *get_dir(char *path, bool ignore_last_token)
+{
+    char *s = path;
+
+    struct dir *cur_dir;
+    struct inode *inode = NULL;
+    
+    if(s[0] == '/')
+    {
+        /* Absolute */
+        cur_dir = dir_open_root();
+        s++;
+    }else
+    {
+        /* Relative */
+        if(thread_current()->working_dir)
+        {
+            cur_dir = dir_reopen(thread_current()->working_dir);
+        }else
+        {
+            cur_dir = dir_open_root;
+        }
+    }
+    
+    char *dir_name = s;
+    while(*s != '\0')
+    {
+        dir_name = get_dirname(s, ignore_last_token);
+        //printf("dir_name is %s\n", dir_name);
+        if(dir_name == NULL)
+        {
+            return cur_dir;
+        }
+
+        if(dir_lookup(cur_dir, dir_name, &inode))
+        {
+            dir_close(cur_dir);
+            cur_dir = dir_open(inode);
+        }else
+        {
+            dir_close(cur_dir);
+            return NULL;
+        }
+        
+        while(*s != '/' && *s != '\0')
+        {
+            s++;
+        }
+
+        if(*s != '\0')
+        {
+            s++;
+        }
+    }
+
+    return cur_dir;
 }
