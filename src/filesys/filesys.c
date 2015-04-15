@@ -92,7 +92,7 @@ static void do_format (void)
 {
     printf ("Formatting file system...");
     free_map_create ();
-    if (!dir_create (ROOT_DIR_SECTOR, 16))
+    if (!dir_create (ROOT_DIR_SECTOR, 16, DIR))
         PANIC ("root directory creation failed");
     free_map_close ();
     printf ("done.\n");

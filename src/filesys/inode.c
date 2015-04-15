@@ -18,8 +18,8 @@ struct inode_disk
 {
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-//    enum inode_type type;               /* FILE or DIR */
-    block_sector_t sectors[126];        /* Sectors */
+    enum inode_type type;               /* FILE or DIR */
+    block_sector_t sectors[125];        /* Sectors */
 };
 
 /* Indirect and double indirect */
@@ -48,6 +48,7 @@ struct inode
 
 void shrink(struct inode_disk *, off_t length);
 bool grow(struct inode_disk *, off_t length);
+
 void shrink(struct inode_disk *disk_inode, off_t length)
 {
     int i;
@@ -57,25 +58,25 @@ void shrink(struct inode_disk *disk_inode, off_t length)
     struct inode_disk_list *double_indirect;   
     
     /* Doubly indirect sectors */
-    if(target_sector < 16636 && disk_inode->sectors[125] != -1)
+    if(target_sector < 16635 && disk_inode->sectors[124] != -1)
     {
-        double_indirect = disk_inode->sectors[125];
+        double_indirect = disk_inode->sectors[124];
         for(i = 127; i >= 0; i--)
         {
-            if(target_sector < 16636 - 128 * (127 - i) &&
+            if(target_sector < 16635 - 128 * (127 - i) &&
                double_indirect->sectors[i] != -1)
             {
                 indirect = double_indirect->sectors[i];
                 for(j = 127; j >= 0; j--)
                 {
-                    if(target_sector < 16636 - 128 * (127 - i) - (127 - j) &&
+                    if(target_sector < 16635 - 128 * (127 - i) - (127 - j) &&
                        indirect->sectors[j] != -1)
                     {
                         free_map_release(indirect->sectors[j], 1);
                         indirect->sectors[j] = -1;
                     }
                 }
-                if(target_sector < 16636 - 128 * (127 - i) - 127)
+                if(target_sector < 16635 - 128 * (127 - i) - 127)
                 {
                     free_map_release(indirect, 1);
                     double_indirect->sectors[i] = -1;
@@ -85,43 +86,43 @@ void shrink(struct inode_disk *disk_inode, off_t length)
                 }
             }
         }
-        if(target_sector < 253)
+        if(target_sector < 252)
         {
             free_map_release(double_indirect, 1);
-            disk_inode->sectors[125] = -1;
+            disk_inode->sectors[124] = -1;
         }else
         {
-            cache_write(disk_inode->sectors[125], double_indirect);
+            cache_write(disk_inode->sectors[124], double_indirect);
         }
     }
   
     /* Indirect sectors */
-    if(target_sector < 252 && disk_inode->sectors[124] != -1)
+    if(target_sector < 251 && disk_inode->sectors[123] != -1)
     {
-        indirect = disk_inode->sectors[124];
+        indirect = disk_inode->sectors[123];
         for(i = 127; i >= 0; i--)
         {
-            if(target_sector < 252 - (127 - i))
+            if(target_sector < 251 - (127 - i))
             {
                 free_map_release(indirect->sectors[i], 1);
                 indirect->sectors[i] = -1;
             }
         }
-        if(target_sector < 125)
+        if(target_sector < 124)
         {
             free_map_release(indirect, 1);
-            disk_inode->sectors[124] = -1;
+            disk_inode->sectors[123] = -1;
         }
         else
         {
-            cache_write(disk_inode->sectors[124], indirect);
+            cache_write(disk_inode->sectors[123], indirect);
         }
     }
   
     /* Direct sectors */
-    for(i = 123; i >= 0; i--)
+    for(i = 122; i >= 0; i--)
     {
-        if(target_sector < 124 - (123 - i) && disk_inode->sectors[i] != -1)
+        if(target_sector < 123 - (122 - i) && disk_inode->sectors[i] != -1)
         {
             free_map_release(disk_inode->sectors[i], 1);
             disk_inode->sectors[i] = -1;
@@ -142,14 +143,11 @@ bool grow(struct inode_disk *disk_inode, off_t length)
 
     struct inode_disk_list *indirect = calloc(1, sizeof(struct inode_disk_list));
     struct inode_disk_list *double_indirect = calloc(1, sizeof(struct inode_disk_list));
-
-    block_sector_t indirect_sector;
-    block_sector_t double_indirect_sector;
-      
+    
     /* Direct sectors */
-    if(cur_sectors < 124 && cur_sectors < target_sectors)
+    if(cur_sectors < 123 && cur_sectors < target_sectors)
     {
-        for(i = cur_sectors; i < target_sectors && i < 124; i++)
+        for(i = cur_sectors; i < target_sectors && i < 123; i++)
         {
             if(free_map_allocate(1, &disk_inode->sectors[i]))
             {
@@ -167,9 +165,9 @@ bool grow(struct inode_disk *disk_inode, off_t length)
     /* Indirect sectors */
     if(cur_sectors < 252 && cur_sectors < target_sectors)
     {
-        if(disk_inode->sectors[124] == -1)
+        if(disk_inode->sectors[123] == -1)
         {           
-            if(free_map_allocate(1, &disk_inode->sectors[124]))
+            if(free_map_allocate(1, &disk_inode->sectors[123]))
             {
                 int k;
                 for (k = 0; k < 128; k++)
@@ -183,10 +181,10 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             }
         }else
         {
-            cache_read(disk_inode->sectors[124], indirect);
+            cache_read(disk_inode->sectors[123], indirect);
         }
         
-        for(i = cur_sectors - 124; i < (target_sectors - 124) && i < 128; i++)
+        for(i = cur_sectors - 123; i < (target_sectors - 123) && i < 128; i++)
         {
             if(free_map_allocate(1, &indirect->sectors[i]))
             {
@@ -200,15 +198,15 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             }
         }
         
-        cache_write(disk_inode->sectors[124], indirect);        
+        cache_write(disk_inode->sectors[123], indirect);        
     }
 
     /* Doubly indirect blocks */
-    if(cur_sectors < 16636 && cur_sectors < target_sectors)
+    if(cur_sectors < 16635 && cur_sectors < target_sectors)
     {
-        if(disk_inode->sectors[125] == -1)
+        if(disk_inode->sectors[124] == -1)
         {
-            if(free_map_allocate(1, &disk_inode->sectors[125]))
+            if(free_map_allocate(1, &disk_inode->sectors[124]))
             {
                 int k;
                 for (k = 0; k < 128; k++)
@@ -225,8 +223,8 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             cache_read(disk_inode->sectors[125], double_indirect);
         }
         
-        for(i = (cur_sectors - 252) / 128;
-            i < (target_sectors - 252) / 128 + 1 && i < 128; i++)
+        for(i = (cur_sectors - 251) / 128;
+            i < (target_sectors - 251) / 128 + 1 && i < 128; i++)
         {
             if(double_indirect->sectors[i] == -1)
             {
@@ -246,8 +244,8 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             {
                 cache_read(double_indirect->sectors[i], indirect);
             }
-            for(j = cur_sectors - 252 - (i * 128);
-                j < target_sectors - 252 - (i * 128) && j < 128; j++)
+            for(j = cur_sectors - 251 - (i * 128);
+                j < target_sectors - 251 - (i * 128) && j < 128; j++)
             {
                 if(free_map_allocate(1, &indirect->sectors[i]))
                 {
@@ -264,7 +262,7 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             
         }
         
-        cache_write(disk_inode->sectors[125], double_indirect);
+        cache_write(disk_inode->sectors[124], double_indirect);
     }
 
     free(indirect);
@@ -295,26 +293,26 @@ static block_sector_t byte_to_sector (const struct inode *inode, off_t pos)
     struct inode_disk_list *i_node_disk;
     int sector = pos / BLOCK_SECTOR_SIZE;
     
-    if(sector < 124) /* It is in our direct sectors */
+    if(sector < 123) /* It is in our direct sectors */
     {
         return inode->data.sectors[sector];
     }
-    if(sector < 252) /* It is in our indirect sector */
+    if(sector < 251) /* It is in our indirect sector */
     {
         i_node_disk = calloc (1, sizeof(struct inode_disk_list));
-        cache_read(inode->data.sectors[124], (void *) i_node_disk);
-        block_sector_t b = i_node_disk->sectors[sector - 124];    
+        cache_read(inode->data.sectors[123], (void *) i_node_disk);
+        block_sector_t b = i_node_disk->sectors[sector - 123];    
         free(i_node_disk);
         return b;
     }
-    if(sector < 16636) /* It is in our double indirect sector */
+    if(sector < 16635) /* It is in our double indirect sector */
     {
         i_node_disk = calloc (1, sizeof(struct inode_disk_list));
         cache_read(inode->data.sectors[125], (void *) i_node_disk);
-        block_sector_t b = i_node_disk->sectors[(sector - 252) / 128];
+        block_sector_t b = i_node_disk->sectors[(sector - 251) / 128];
             
         cache_read(b, i_node_disk);
-        b = i_node_disk->sectors[(sector - 252) % 128];            
+        b = i_node_disk->sectors[(sector - 251) % 128];            
         free(i_node_disk);
         return b;
     }
@@ -353,10 +351,10 @@ bool inode_create (block_sector_t sector, off_t length, enum inode_type type)
     {
         disk_inode->length = 0;
         disk_inode->magic = INODE_MAGIC;
-//        disk_inode->type = type;
+        disk_inode->type = type;
 
         int i;
-        for(i = 0; i < 126; i++)
+        for(i = 0; i < 125; i++)
         {
             disk_inode->sectors[i] = -1;
         }

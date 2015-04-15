@@ -10,6 +10,7 @@
 #include "vm/frame.h"
 #include "userprog/exception.h"
 #include "filesys/directory.h"
+#include "filesys/inode.h"
 
 #define MAX_OPEN_FILES 9
 
@@ -666,7 +667,7 @@ bool mkdir(const char *path)
     bool success = (cur_dir != NULL
                     && !dir_lookup (cur_dir, new_dir, &inode)
                     && free_map_allocate (1, &sector)
-                    && dir_create(sector, 16) //', cur_dir)
+                    && dir_create(sector, 16, cur_dir)
                     && dir_add(cur_dir, new_dir, sector));
 
     if(cur_dir)
