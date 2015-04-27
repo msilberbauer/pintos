@@ -291,7 +291,7 @@ struct dir *get_dir(char *path, bool ignore_last_token)
             cur_dir = dir_reopen(thread_current()->working_dir);
         }else
         {
-            cur_dir = dir_open_root;
+            cur_dir = dir_open_root();
         }
     }
     

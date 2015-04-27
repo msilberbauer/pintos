@@ -205,20 +205,11 @@ static void syscall_handler(struct intr_frame *f UNUSED)
     }
 }
 
-int open (const char *file)
+int open(const char *file)
 {
     lock_acquire(&filesys_lock);    
     struct file *f = filesys_open(file);
 
-    /* char *name = get_filename(file); */
-    /* struct dir *dir = get_dir(file, true); */
-    
-    /* struct inode *inode = NULL; */
-    /* dir_lookup(dir, name, &inode); */
-    /* dir_close(dir); */
-
-    //struct file *f = file_open(inode);
-    
     if(f != NULL)
     {
         int i;
