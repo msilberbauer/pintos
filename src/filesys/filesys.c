@@ -45,13 +45,13 @@ void filesys_done (void)
 bool filesys_create (const char *name, off_t initial_size)
 {
     block_sector_t inode_sector = 0;
-    struct dir *dir = dir_open_root ();
-    //struct dir *dir = get_dir(name, true);
-    //char *file = get_filename(name);
+    //struct dir *dir = dir_open_root ();
+    struct dir *dir = get_dir(name, true);
+    char *file = get_filename(name);
     bool success = (dir != NULL
                     && free_map_allocate (1, &inode_sector)
                     && inode_create (inode_sector, initial_size, FILE)
-                    && dir_add (dir, name, inode_sector));
+                    && dir_add (dir, file, inode_sector));
     if (!success && inode_sector != 0)
         free_map_release (inode_sector, 1);
     dir_close (dir);
@@ -66,14 +66,21 @@ bool filesys_create (const char *name, off_t initial_size)
    or if an internal memory allocation fails. */
 struct file *filesys_open (const char *name)
 {
-    //struct dir *dir = get_dir(name, true);
-    //char *file = get_filename(name);
-    struct dir *dir = dir_open_root ();
+    //printf("what %s\n", name);
+    struct dir *dir = get_dir(name, true);
+    
+    // struct dir *dir = dir_open_root ();
     struct inode *inode = NULL;
-
-    if (dir != NULL)
-        dir_lookup (dir, name, &inode);
-    dir_close (dir);
+    char *file = get_filename(name);
+    if(*file == '\0')
+    {
+        inode = dir_get_inode(dir);
+    }else
+    {
+        if (dir != NULL)
+            dir_lookup (dir, file, &inode);
+        dir_close (dir);
+    }
 
     return file_open (inode);
 }
@@ -84,10 +91,10 @@ struct file *filesys_open (const char *name)
    or if an internal memory allocation fails. */
 bool filesys_remove (const char *name)
 {
-    struct dir *dir = dir_open_root ();
-    //struct dir *dir = get_dir(name, true);
-    //char *file = get_filename(name);
-    bool success = dir != NULL && dir_remove (dir, name);
+    //struct dir *dir = dir_open_root ();
+    struct dir *dir = get_dir(name, true);
+    char *file = get_filename(name);
+    bool success = dir != NULL && dir_remove (dir, file);
     dir_close (dir);
 
     return success;

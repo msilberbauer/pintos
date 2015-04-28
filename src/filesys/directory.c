@@ -193,6 +193,17 @@ bool dir_remove (struct dir *dir, const char *name)
     if (inode == NULL)
         goto done;
 
+    if(inode_is_directory(inode))
+    {
+        struct dir *subdir = dir_open(inode);
+        if(!is_empty(subdir))
+        {
+            dir_close(subdir);
+            goto done;
+        }
+        dir_close (subdir);
+    }
+    
     /* Erase directory entry. */
     e.in_use = false;
     if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e)
@@ -227,7 +238,7 @@ bool dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 }
 
 char *get_filename(char *path)
-{
+{    
     char *s = path;
 
     char *result = path;
@@ -249,7 +260,9 @@ char *get_dirname(char *path, bool ignore_last_token)
 {
     char *s = path;
 
-    char *result = path;
+    char *result = (char *)malloc(strlen(path)+1);
+    strlcpy(result, path, strlen(path)+1);
+    
     int i = 0;
     while(*s != '/')
     {
@@ -264,9 +277,8 @@ char *get_dirname(char *path, bool ignore_last_token)
         i++;
         s++;
     }
-
+    
     result[i] = '\0';
-
     return result;   
 }
 
@@ -299,9 +311,9 @@ struct dir *get_dir(char *path, bool ignore_last_token)
     while(*s != '\0')
     {
         dir_name = get_dirname(s, ignore_last_token);
-        //printf("dir_name is %s\n", dir_name);
-        if(dir_name == NULL)
+        if(dir_name == NULL || *dir_name == '\0')
         {
+            free(dir_name);
             return cur_dir;
         }
 
@@ -327,4 +339,38 @@ struct dir *get_dir(char *path, bool ignore_last_token)
     }
 
     return cur_dir;
+}
+
+
+bool read_dir(struct dir *dir, char name[NAME_MAX + 1])
+{
+    struct dir_entry e;    
+    while(inode_read_at(dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
+    {
+        dir->pos += sizeof e;
+        if(e.in_use)
+        {
+            strlcpy(name, e.name, NAME_MAX + 1);
+            return true;
+        } 
+    }
+    return false;
+}
+
+bool is_empty(struct dir *dir)
+{
+    struct dir_entry e;
+    off_t ofs;
+
+    for(ofs = 0;
+        inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+        ofs += sizeof e)
+    {
+        if(e.in_use)
+        {
+            return false;
+        }
+    }
+
+    return true;
 }

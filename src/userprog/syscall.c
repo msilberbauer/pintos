@@ -235,6 +235,7 @@ int write(int fd, const void *buffer, unsigned size)
     is_valid_fd(fd);
     is_valid_buffer(buffer, size, false);
     
+    
     /* Might cause problems if it is possible to change the meaning of
        fd 0 and fd 1. fx writing to files instead of console etc. */  
     if(fd == STDIN_FILENO) /* Can't write to stdin */
@@ -246,10 +247,17 @@ int write(int fd, const void *buffer, unsigned size)
         putbuf(buffer,size);
         return size;
     }else
-    {  
+    {
+        if(isdir(fd))
+        {
+            return -1;
+        }
+        
         lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
 
+        
+        
         if(get_deny_write(f))
         {
             lock_release(&filesys_lock);
@@ -375,7 +383,7 @@ void exit(int status)
 
         e = next;
     }   
-        
+
     thread_exit();
 }
 
@@ -650,6 +658,11 @@ bool chdir(const char *s)
 
 bool mkdir(const char *path)
 {
+    if(strlen(path) == 0 || strcmp(path, "/") == 0)
+    { 
+        return false;
+    }
+    
     struct dir *cur_dir = get_dir(path, true);
     char *new_dir = get_filename(path);
     struct inode *inode;
@@ -670,23 +683,71 @@ bool mkdir(const char *path)
         free_map_release(&sector, 1);
     }
 
-    return true;
+    return success;
 }
 
 bool readdir(int fd, char *name)
 {
-    // TODO
+    is_valid_fd(fd);
+    if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
+    {
+        return false;
+    }    
+
+    struct file *f = thread_current()->fdtable[fd];
+    if(f == NULL)
+    {
+        return false;
+    }
+
+    if(!isdir(fd))
+    {
+        return false;
+    }
+
+    // TODO this not work
+    struct dir *dir = dir_open(inode_reopen(file_get_inode(f)));
+    read_dir(dir, name);
     return true;
 }
 
 bool isdir(int fd)
 {
-    // TODO
-    return true;
+    is_valid_fd(fd);
+    if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
+    {
+        return false;
+    }    
+
+    struct file *f = thread_current()->fdtable[fd];
+    if(f == NULL)
+    {
+        return false;
+    }
+
+    struct inode *in = file_get_inode(f);
+    if(inode_is_directory(in))
+    {
+        return true;
+    }
+    
+    return false;
 }
 
 int inumber(int fd)
 {
-    // TODO
-    return true;
+    is_valid_fd(fd);
+    if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
+    {
+        return -1;
+    }    
+
+    struct file *f = thread_current()->fdtable[fd];
+    if(f == NULL)
+    {
+        return -1;
+    }
+
+    struct inode *in = file_get_inode(f);
+    return inode_number(in);
 }

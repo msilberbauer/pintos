@@ -150,6 +150,8 @@ void process_exit (void)
 {
     struct thread *cur = thread_current();
     uint32_t *pd;
+
+    dir_close(cur->working_dir);
     
     /* Release its semaphore */    
     sema_up(&cur->p->wait);

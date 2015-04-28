@@ -29,5 +29,7 @@ bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
 
 char *get_filename(char *path);
 struct dir *get_dir(char *path, bool ignore_last_token);
+bool read_dir(struct dir *dir, char name[NAME_MAX + 1]);
+bool is_empty(struct dir *dir);
 
 #endif /* filesys/directory.h */

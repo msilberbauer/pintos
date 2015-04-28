@@ -575,3 +575,13 @@ off_t inode_length (const struct inode *inode)
 {
     return inode->data.length;
 }
+
+bool inode_is_directory(struct inode *inode)
+{
+    return inode->data.type == DIR;
+}
+
+int inode_number(struct inode *inode)
+{
+    return (int) inode->sector;
+}
