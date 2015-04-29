@@ -12,6 +12,15 @@ struct mmap_file
     struct list_elem elem;
 };
 
+/* Can represent an open file or dir, noth both at the same time */
+struct fd
+{
+    int fd;
+    struct dir *dir;
+    struct file *file;
+    struct list_elem elem;
+};
+
 struct process
 {
     tid_t pid;               /* The process id */

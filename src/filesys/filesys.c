@@ -45,7 +45,6 @@ void filesys_done (void)
 bool filesys_create (const char *name, off_t initial_size)
 {
     block_sector_t inode_sector = 0;
-    //struct dir *dir = dir_open_root ();
     struct dir *dir = get_dir(name, true);
     char *file = get_filename(name);
     bool success = (dir != NULL
@@ -67,8 +66,6 @@ bool filesys_create (const char *name, off_t initial_size)
 struct file *filesys_open (const char *name)
 {
     struct dir *dir = get_dir(name, true);
-    
-    // struct dir *dir = dir_open_root ();
     struct inode *inode = NULL;
     char *file = get_filename(name);
     if(*file == '\0')
@@ -81,7 +78,10 @@ struct file *filesys_open (const char *name)
         dir_close (dir);
     }
 
-    return file_open (inode);
+    if(inode == NULL || inode_is_removed (inode))
+        return NULL;
+    else
+        return file_open (inode);
 }
 
 /* Deletes the file named NAME.
@@ -90,7 +90,6 @@ struct file *filesys_open (const char *name)
    or if an internal memory allocation fails. */
 bool filesys_remove (const char *name)
 {
-    //struct dir *dir = dir_open_root ();
     struct dir *dir = get_dir(name, true);
     char *file = get_filename(name);
     bool success = dir != NULL && dir_remove (dir, file);

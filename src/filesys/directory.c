@@ -286,7 +286,6 @@ char *get_filename(char *path)
     return result;   
 }
 
-
 char *get_dirname(char *path, bool ignore_last_token)
 {
     char *s = path;
@@ -312,7 +311,6 @@ char *get_dirname(char *path, bool ignore_last_token)
     result[i] = '\0';
     return result;   
 }
-
 
 struct dir *get_dir(char *path, bool ignore_last_token)
 {
@@ -345,6 +343,11 @@ struct dir *get_dir(char *path, bool ignore_last_token)
         if(dir_name == NULL || *dir_name == '\0')
         {
             free(dir_name);
+            if(inode_is_removed(cur_dir->inode))
+            {
+                return NULL;
+            }
+            
             return cur_dir;
         }
 
@@ -369,9 +372,13 @@ struct dir *get_dir(char *path, bool ignore_last_token)
         }
     }
 
+    if(inode_is_removed(cur_dir->inode))
+    {
+        return NULL;
+    }
+    
     return cur_dir;
 }
-
 
 bool read_dir(struct dir *dir, char name[NAME_MAX + 1])
 {

@@ -98,7 +98,7 @@ static void start_process (void *file_name_)
     /* Ensure that the executable of a running process cannot be
        modified: by itself and by others */    
     int fd = open((const char *)file_name);    
-    struct file *f = thread_current()->fdtable[fd];
+    struct file *f = fd_get_file(fd);
     file_deny_write(f);  
     
     palloc_free_page (file_name);

@@ -585,3 +585,8 @@ int inode_number(struct inode *inode)
 {
     return (int) inode->sector;
 }
+
+int inode_is_removed(struct inode *inode)
+{
+    return inode->removed;
+}

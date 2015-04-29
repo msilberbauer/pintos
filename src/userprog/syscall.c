@@ -22,7 +22,6 @@ int read(int fd, void *buffer, unsigned size, void * sp);
 void exit(int status);
 bool create(const char *file, unsigned initial_size);
 void close(int fd);
-void is_valid_fd(int fd);
 int exec(const char *cmd_line);
 void seek(int fd, unsigned position);
 bool remove(const char *file);
@@ -37,6 +36,9 @@ bool mkdir(const char *dir);
 bool readdir(int fd, char *name);
 bool isdir(int fd);
 int inumber(int fd);
+struct file *fd_get_file(int fd);
+struct file *fd_get_dir(int fd);
+bool fd_order_function(const struct list_elem *a, const struct list_elem *b, void *aux);
 
 void syscall_init(void)
 {
@@ -214,22 +216,48 @@ int open(const char *file)
     
     lock_acquire(&filesys_lock);    
     struct file *f = filesys_open(file);
-
-    if(f != NULL)
+    if(f == NULL)
     {
-        int i;
-        for(i = 2; i < 10; i++) // for now 0 and 1 reserved for stdin and stdout. not ideal.
-        {
-            if(thread_current()->fdtable[i] == NULL)
-            {
-                thread_current()->fdtable[i] = f;
-                lock_release(&filesys_lock);
-                return i;
-            }
-        }
-    }    
+        lock_release(&filesys_lock);
+        return -1;
+    }
+    
+    struct thread *t = thread_current();
+    int new_fd;
+
+    if(list_empty(&t->fds))
+    {
+        new_fd = 2;
+    }else
+    {
+        new_fd = list_entry(list_max(&t->fds, fd_order_function, NULL),
+                            struct fd, elem)->fd + 1;
+    }
+    if(new_fd < 2)
+    {
+        new_fd = 2;
+    }
+
+    struct fd *fd = palloc_get_page(0);
+    if(fd == NULL)
+    {
+        lock_release(&filesys_lock);
+        return -1;
+    }
+  
+    fd->fd = new_fd;
+    fd->file = f;
+    if(inode_is_directory(file_get_inode (f)))
+    {
+        fd->dir = dir_open(inode_reopen(file_get_inode (f)));
+    }else
+    {
+        fd->dir = NULL;
+    }
+
+    list_push_back(&t->fds, &fd->elem);
     lock_release(&filesys_lock);
-    return -1;
+    return new_fd;
 }
 
 /* Writes size bytes from buffer to the open file fd.
@@ -237,7 +265,6 @@ int open(const char *file)
    than size if some bytes could not be written. */
 int write(int fd, const void *buffer, unsigned size)
 {
-    is_valid_fd(fd);
     is_valid_buffer(buffer, size, false);   
     
     /* Might cause problems if it is possible to change the meaning of
@@ -258,8 +285,13 @@ int write(int fd, const void *buffer, unsigned size)
         }
         
         lock_acquire(&filesys_lock);
-        struct file *f = thread_current()->fdtable[fd];
-
+        struct file *f = fd_get_file(fd);
+        if(f == NULL)
+        {
+            lock_release(&filesys_lock);
+            return 0;
+        }
+        
         if(get_deny_write(f))
         {
             lock_release(&filesys_lock);
@@ -281,7 +313,6 @@ int write(int fd, const void *buffer, unsigned size)
    Fd 0 reads from the keyboard using input_getc(). */
 int read (int fd, void *buffer, unsigned size, void *sp) 
 {
-    is_valid_fd(fd);
     is_valid_buffer(buffer, size, true);
     
     /* Might cause problems if it is possible to change the meaning of
@@ -304,7 +335,7 @@ int read (int fd, void *buffer, unsigned size, void *sp)
     else
     {
         //lock_acquire(&filesys_lock);
-        struct file *f = thread_current()->fdtable[fd];
+        struct file *f = fd_get_file(fd);
         if(f == NULL)
         {
             //lock_release(&filesys_lock);
@@ -328,15 +359,19 @@ void exit(int status)
     printf("%s: exit(%d)\n", cur->name, cur->p->status);
 
     /* Close all open files */
-    int i;
-    for(i = 2; i < 10; i++) // for now 0 and 1 reserved for stdin and stdout. not ideal.
+    struct list_elem *e = list_begin(&cur->fds);
+    struct list_elem *next;
+    while(!list_empty(&cur->fds))
     {
-        close(i);
+        struct list_elem *e = list_pop_front(&cur->fds);
+        struct fd *desc = NULL;
+        desc = list_entry(e, struct fd, elem);
+        file_close(desc->file);
+        palloc_free_page(desc);
     }
 
     /* Release all locks */
-    struct list_elem *next;
-    struct list_elem *e = list_begin(&cur->locks);
+    e = list_begin(&cur->locks);
     while(e != list_end (&cur->locks))
     {
         next = list_next(e);
@@ -398,26 +433,38 @@ bool create(const char *file, unsigned initial_size)
 
 void close(int fd)
 {
-    is_valid_fd(fd);
+    lock_acquire(&filesys_lock);
+    struct thread *cur = thread_current();
+    struct list_elem *e = list_begin(&cur->fds);
+    struct list_elem *next;
 
-    if(thread_current()->fdtable[fd] != NULL)
-    {
-        lock_acquire(&filesys_lock);        
-        file_close(thread_current()->fdtable[fd]);
-        lock_release(&filesys_lock);
+    while(e != list_end(&cur->fds))
+    {        
+        next = list_next(e);
+        struct fd *file_desc = list_entry(e, struct fd, elem);
+        if(file_desc->fd == fd)
+        {
+            file_close(file_desc->file);        
+            if(file_desc->dir)
+            {
+                dir_close(file_desc->dir);
+            }
+            list_remove(e);
+            palloc_free_page(file_desc);
+        }
         
-        thread_current()->fdtable[fd] = NULL;
-    }       
+        e = next;
+    }
+    lock_release(&filesys_lock);
 }
 
 int filesize(int fd)
 {
-    is_valid_fd(fd);
-    
-    if(thread_current()->fdtable[fd] != NULL)
+    struct file *f = fd_get_file(fd);
+    if(f != NULL)
     {
         lock_acquire(&filesys_lock);
-        off_t length = file_length(thread_current()->fdtable[fd]);        
+        off_t length = file_length(f);        
         lock_release(&filesys_lock);
         
         return length;
@@ -451,12 +498,11 @@ int exec(const char *cmd_line)
 
 void seek(int fd, unsigned position)
 {
-    is_valid_fd(fd);
-    
-    if(thread_current()->fdtable[fd] != NULL)
+    struct file *f = fd_get_file(fd);
+    if(f != NULL)
     {
         lock_acquire(&filesys_lock);        
-        file_seek(thread_current()->fdtable[fd], position);
+        file_seek(f, position);
         lock_release(&filesys_lock);
     }
 }
@@ -472,11 +518,11 @@ bool remove(const char *file)
 unsigned tell(int fd)
 {
     lock_acquire(&filesys_lock);
-    is_valid_fd(fd);
-    if(thread_current()->fdtable[fd] != NULL)
+    struct file *f = fd_get_file(fd);
+    if(f != NULL)
     {               
         lock_release(&filesys_lock);
-        return file_tell(thread_current()->fdtable[fd]);
+        return file_tell(f);
     }
 
     lock_release(&filesys_lock);
@@ -485,14 +531,13 @@ unsigned tell(int fd)
 
 int mmap(int fd, void *addr)
 {
-    is_valid_fd(fd);
     if(!is_user_vaddr(addr) || addr < 0x08048000 ||
        ((int) addr) % PGSIZE != 0) // Page aligned
     {
         return -1;
     }
         
-    struct file *old_file = thread_current()->fdtable[fd];
+    struct file *old_file = fd_get_file(fd);
     if(old_file == NULL)
     {        
         return -1;
@@ -576,14 +621,6 @@ void munmap(int mapping)
 
         e = next;
     }      
-}
-
-void is_valid_fd(int fd)
-{
-    if(fd > MAX_OPEN_FILES) /* Max allowed files opened */
-    {
-        exit(-1);
-    }
 }
 
 bool is_valid_ptr(const void *ptr)
@@ -689,13 +726,12 @@ bool mkdir(const char *path)
 
 bool readdir(int fd, char *name)
 {
-    is_valid_fd(fd);
     if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
     {
         return false;
     }    
 
-    struct file *f = thread_current()->fdtable[fd];
+    struct file *f = fd_get_dir(fd);
     if(f == NULL)
     {
         return false;
@@ -705,22 +741,19 @@ bool readdir(int fd, char *name)
     {
         return false;
     }
-
-    // TODO this not work
-    struct dir *dir = dir_open(inode_reopen(file_get_inode(f)));
-    read_dir(dir, name);
-    return true;
+    
+    struct dir *dir = fd_get_dir(fd);
+    return read_dir(dir, name);
 }
 
 bool isdir(int fd)
 {
-    is_valid_fd(fd);
     if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
     {
         return false;
     }    
 
-    struct file *f = thread_current()->fdtable[fd];
+    struct file *f = fd_get_file(fd);
     if(f == NULL)
     {
         return false;
@@ -737,13 +770,12 @@ bool isdir(int fd)
 
 int inumber(int fd)
 {
-    is_valid_fd(fd);
     if(fd == STDIN_FILENO || fd == STDOUT_FILENO)
     {
         return -1;
     }    
 
-    struct file *f = thread_current()->fdtable[fd];
+    struct file *f = fd_get_file(fd);
     if(f == NULL)
     {
         return -1;
@@ -752,3 +784,49 @@ int inumber(int fd)
     struct inode *in = file_get_inode(f);
     return inode_number(in);
 }
+
+
+struct file *fd_get_file(int fd)
+{
+    struct thread *t = thread_current();
+    struct list_elem *e;
+    struct fd *file_desc;
+    for (e = list_begin(&t->fds); e != list_end (&t->fds);
+            e = list_next (e))
+    {
+        file_desc = list_entry(e, struct fd, elem);
+        if(file_desc->fd == fd)
+        {
+            return file_desc->file;
+        }
+    }
+
+    return NULL;
+}
+
+struct file *fd_get_dir(int fd)
+{
+    struct thread *t = thread_current();
+    struct list_elem *e;
+    struct fd *file_desc;
+    for (e = list_begin(&t->fds); e != list_end (&t->fds);
+            e = list_next (e))
+    {
+        file_desc = list_entry(e, struct fd, elem);
+        if(file_desc->fd == fd)
+        {
+            return file_desc->dir;
+        }
+    }
+
+    return NULL;
+}
+
+bool fd_order_function(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+    struct fd *fd1 = list_entry (a, struct fd, elem);
+    struct fd *fd2 = list_entry (b, struct fd, elem);
+
+    return fd1->fd < fd2->fd;
+}
+
