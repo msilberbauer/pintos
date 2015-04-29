@@ -163,7 +163,7 @@ bool grow(struct inode_disk *disk_inode, off_t length)
     }
 
     /* Indirect sectors */
-    if(cur_sectors < 252 && cur_sectors < target_sectors)
+    if(cur_sectors < 251 && cur_sectors < target_sectors)
     {
         if(disk_inode->sectors[123] == -1)
         {           
@@ -220,7 +220,7 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             }
         }else
         {
-            cache_read(disk_inode->sectors[125], double_indirect);
+            cache_read(disk_inode->sectors[124], double_indirect);
         }
         
         for(i = (cur_sectors - 251) / 128;
@@ -292,7 +292,7 @@ static block_sector_t byte_to_sector (const struct inode *inode, off_t pos)
 
     struct inode_disk_list *i_node_disk;
     int sector = pos / BLOCK_SECTOR_SIZE;
-    
+
     if(sector < 123) /* It is in our direct sectors */
     {
         return inode->data.sectors[sector];
@@ -308,15 +308,14 @@ static block_sector_t byte_to_sector (const struct inode *inode, off_t pos)
     if(sector < 16635) /* It is in our double indirect sector */
     {
         i_node_disk = calloc (1, sizeof(struct inode_disk_list));
-        cache_read(inode->data.sectors[125], (void *) i_node_disk);
+        cache_read(inode->data.sectors[124], (void *) i_node_disk);
         block_sector_t b = i_node_disk->sectors[(sector - 251) / 128];
-            
         cache_read(b, i_node_disk);
         b = i_node_disk->sectors[(sector - 251) % 128];            
         free(i_node_disk);
         return b;
     }
-    
+
     return -1;
 }
 
@@ -336,7 +335,7 @@ void inode_init (void)
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
 bool inode_create (block_sector_t sector, off_t length, enum inode_type type)
-{
+{    
     struct inode_disk *disk_inode = NULL;
     bool success = false;
     
@@ -347,8 +346,9 @@ bool inode_create (block_sector_t sector, off_t length, enum inode_type type)
     ASSERT (sizeof *disk_inode == BLOCK_SECTOR_SIZE);
 
     disk_inode = calloc(1, sizeof *disk_inode);
+
     if(disk_inode != NULL)
-    {
+    {                        
         disk_inode->length = 0;
         disk_inode->magic = INODE_MAGIC;
         disk_inode->type = type;
@@ -358,7 +358,7 @@ bool inode_create (block_sector_t sector, off_t length, enum inode_type type)
         {
             disk_inode->sectors[i] = -1;
         }
-        
+
         success = grow(disk_inode, length);
         if(success)
         {

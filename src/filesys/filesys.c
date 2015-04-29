@@ -66,7 +66,6 @@ bool filesys_create (const char *name, off_t initial_size)
    or if an internal memory allocation fails. */
 struct file *filesys_open (const char *name)
 {
-    //printf("what %s\n", name);
     struct dir *dir = get_dir(name, true);
     
     // struct dir *dir = dir_open_root ();

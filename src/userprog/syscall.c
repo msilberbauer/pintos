@@ -140,7 +140,7 @@ static void syscall_handler(struct intr_frame *f UNUSED)
        case SYS_TELL :
            if(is_valid_ptr (sp + 1))
            {
-               tell(*(sp + 1));
+               f->eax = tell(*(sp + 1));
            }           
            break;
        case SYS_CLOSE :
@@ -207,6 +207,11 @@ static void syscall_handler(struct intr_frame *f UNUSED)
 
 int open(const char *file)
 {
+    if(file[0] == '\0')
+    {
+        return -1;
+    }
+    
     lock_acquire(&filesys_lock);    
     struct file *f = filesys_open(file);
 
@@ -233,8 +238,7 @@ int open(const char *file)
 int write(int fd, const void *buffer, unsigned size)
 {
     is_valid_fd(fd);
-    is_valid_buffer(buffer, size, false);
-    
+    is_valid_buffer(buffer, size, false);   
     
     /* Might cause problems if it is possible to change the meaning of
        fd 0 and fd 1. fx writing to files instead of console etc. */  
@@ -256,8 +260,6 @@ int write(int fd, const void *buffer, unsigned size)
         lock_acquire(&filesys_lock);
         struct file *f = thread_current()->fdtable[fd];
 
-        
-        
         if(get_deny_write(f))
         {
             lock_release(&filesys_lock);
@@ -269,8 +271,7 @@ int write(int fd, const void *buffer, unsigned size)
         
         return written; /* Returns number of bytes written */
     }
-    
-    lock_release(&filesys_lock);
+  
     return -1;
 }
 
@@ -474,12 +475,12 @@ unsigned tell(int fd)
     is_valid_fd(fd);
     if(thread_current()->fdtable[fd] != NULL)
     {               
-        unsigned offset = file_tell(thread_current()->fdtable[fd]);
         lock_release(&filesys_lock);
-        return offset;
+        return file_tell(thread_current()->fdtable[fd]);
     }
 
     lock_release(&filesys_lock);
+    return -1;
 }
 
 int mmap(int fd, void *addr)
