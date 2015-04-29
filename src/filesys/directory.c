@@ -25,9 +25,33 @@ struct dir_entry
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
-bool dir_create (block_sector_t sector, size_t entry_cnt, struct inode *parent)
+bool dir_create (block_sector_t sector, size_t entry_cnt, struct dir *parent)
 {
-    return inode_create (sector, entry_cnt * sizeof (struct dir_entry), DIR);
+    if(!inode_create (sector, entry_cnt * sizeof (struct dir_entry), DIR))
+    {
+        return false;
+    }
+
+    struct dir *new_dir = dir_open(inode_open(sector));
+    struct dir_entry e;
+
+    if(inode_read_at(new_dir->inode, &e, sizeof e, 0) != sizeof e)
+    {
+        dir_close(new_dir);
+        return false;
+    }
+    if(parent != NULL)
+    {
+        e.inode_sector = inode_get_inumber(parent->inode);
+        if(inode_write_at(new_dir->inode, &e, sizeof e, 0) != sizeof e)
+        {
+            dir_close(new_dir);
+            return false;
+        }
+    }
+
+    dir_close(new_dir);
+    return true;
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -38,7 +62,7 @@ struct dir *dir_open (struct inode *inode)
     if (inode != NULL && dir != NULL)
     {
         dir->inode = inode;
-        dir->pos = 0;
+        dir->pos = sizeof (struct dir_entry);
         return dir;
     }
     else
@@ -93,7 +117,7 @@ static bool lookup (const struct dir *dir, const char *name,
     ASSERT (dir != NULL);
     ASSERT (name != NULL);
 
-    for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+    for (ofs = sizeof e; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
             ofs += sizeof e)
         if (e.in_use && !strcmp (name, e.name))
         {
@@ -118,7 +142,14 @@ bool dir_lookup (const struct dir *dir, const char *name,
     ASSERT (dir != NULL);
     ASSERT (name != NULL);
 
-    if (lookup (dir, name, &e, NULL))
+    if(strcmp(name, ".") == 0)
+        *inode = inode_reopen(dir->inode);
+    else if(strcmp (name, "..") == 0)
+    {
+        inode_read_at (dir->inode, &e, sizeof e, 0);
+        *inode = inode_open(e.inode_sector);
+    }
+    else if (lookup (dir, name, &e, NULL))
         *inode = inode_open (e.inode_sector);
     else
         *inode = NULL;
@@ -156,7 +187,7 @@ bool dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
        inode_read_at() will only return a short read at end of file.
        Otherwise, we'd need to verify that we didn't get a short
        read due to something intermittent such as low memory. */
-    for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+    for (ofs = sizeof e; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
             ofs += sizeof e)
         if (!e.in_use)
             break;
@@ -362,7 +393,7 @@ bool is_empty(struct dir *dir)
     struct dir_entry e;
     off_t ofs;
 
-    for(ofs = 0;
+    for(ofs = sizeof e;
         inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
         ofs += sizeof e)
     {
