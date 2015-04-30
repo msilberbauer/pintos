@@ -71,9 +71,7 @@ struct frame_entry *frame_pick_victim(void)
 
 void *frame_evict(enum palloc_flags flags)
 {
-    
-    struct frame_entry *victim = frame_pick_victim();
-    
+    struct frame_entry *victim = frame_pick_victim();   
     
     bool dirty = pagedir_is_dirty(victim->thread->pagedir, victim->spte->uaddr);     
     if(victim->spte->type == FS)
@@ -97,12 +95,10 @@ void *frame_evict(enum palloc_flags flags)
         if(dirty)
         {
             /* To file system */            
-            lock_acquire(&filesys_lock);
             file_write_at(victim->spte->file,
                           victim->spte->uaddr,
                           victim->spte->read_bytes,
                           victim->spte->offset);
-            lock_release(&filesys_lock);
         }        
     }
 

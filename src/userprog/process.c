@@ -292,15 +292,12 @@ bool load (const char *file_name, void (**eip) (void), void **esp)
     char *save_ptr;
     actual_file_name = strtok_r((char *) actual_file_name, " ", &save_ptr);
 
-    lock_acquire(&filesys_lock);
     file = filesys_open (actual_file_name);
     if (file == NULL)
     {
-        lock_release(&filesys_lock);
         printf ("load: %s: open failed\n", actual_file_name);
         goto done;
     }
-    lock_release(&filesys_lock);
     
     /* Read and verify executable header. */
     if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr

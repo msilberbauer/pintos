@@ -42,7 +42,6 @@ bool fd_order_function(const struct list_elem *a, const struct list_elem *b, voi
 
 void syscall_init(void)
 {
-    lock_init(&filesys_lock);
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -213,12 +212,10 @@ int open(const char *file)
     {
         return -1;
     }
-    
-    lock_acquire(&filesys_lock);    
+       
     struct file *f = filesys_open(file);
     if(f == NULL)
     {
-        lock_release(&filesys_lock);
         return -1;
     }
     
@@ -241,7 +238,6 @@ int open(const char *file)
     struct fd *fd = palloc_get_page(0);
     if(fd == NULL)
     {
-        lock_release(&filesys_lock);
         return -1;
     }
   
@@ -256,7 +252,6 @@ int open(const char *file)
     }
 
     list_push_back(&t->fds, &fd->elem);
-    lock_release(&filesys_lock);
     return new_fd;
 }
 
@@ -284,22 +279,18 @@ int write(int fd, const void *buffer, unsigned size)
             return -1;
         }
         
-        lock_acquire(&filesys_lock);
         struct file *f = fd_get_file(fd);
         if(f == NULL)
         {
-            lock_release(&filesys_lock);
             return 0;
         }
         
         if(get_deny_write(f))
         {
-            lock_release(&filesys_lock);
             return 0;
         }
 
-        off_t written = file_write(f, buffer, size);        
-        lock_release(&filesys_lock);        
+        off_t written = file_write(f, buffer, size);
         
         return written; /* Returns number of bytes written */
     }
@@ -334,18 +325,14 @@ int read (int fd, void *buffer, unsigned size, void *sp)
     }
     else
     {
-        //lock_acquire(&filesys_lock);
         struct file *f = fd_get_file(fd);
         if(f == NULL)
         {
-            //lock_release(&filesys_lock);
             return -1;
-            
         }
         off_t read = file_read(f, buffer, size);
         
         /* Returns number of bytes read */
-        //lock_release(&filesys_lock);
         return read;        
     }
 
@@ -402,12 +389,10 @@ void exit(int status)
         /* If dirty we write back to the file on the file system */
         if(pagedir_is_dirty(cur->pagedir, mm->spte->uaddr))
         {
-            lock_acquire(&filesys_lock);
             file_write_at(mm->spte->file,
                           mm->spte->uaddr,
                           mm->spte->read_bytes,
                           mm->spte->offset);
-            lock_release(&filesys_lock);
         }
 
         frame_free(pagedir_get_page(cur->pagedir, mm->spte->uaddr));
@@ -425,15 +410,12 @@ void exit(int status)
 
 bool create(const char *file, unsigned initial_size)
 {
-    lock_acquire(&filesys_lock);
     bool result = filesys_create(file,initial_size);
-    lock_release(&filesys_lock);
     return result;    
 }
 
 void close(int fd)
 {
-    lock_acquire(&filesys_lock);
     struct thread *cur = thread_current();
     struct list_elem *e = list_begin(&cur->fds);
     struct list_elem *next;
@@ -455,7 +437,7 @@ void close(int fd)
         
         e = next;
     }
-    lock_release(&filesys_lock);
+    
 }
 
 int filesize(int fd)
@@ -463,10 +445,7 @@ int filesize(int fd)
     struct file *f = fd_get_file(fd);
     if(f != NULL)
     {
-        lock_acquire(&filesys_lock);
-        off_t length = file_length(f);        
-        lock_release(&filesys_lock);
-        
+        off_t length = file_length(f);
         return length;
     }
 
@@ -500,32 +479,25 @@ void seek(int fd, unsigned position)
 {
     struct file *f = fd_get_file(fd);
     if(f != NULL)
-    {
-        lock_acquire(&filesys_lock);        
+    {      
         file_seek(f, position);
-        lock_release(&filesys_lock);
     }
 }
 
 bool remove(const char *file)
 {
-    lock_acquire(&filesys_lock);
     bool result = filesys_remove(file);
-    lock_release(&filesys_lock);
     return result;
 }
 
 unsigned tell(int fd)
 {
-    lock_acquire(&filesys_lock);
     struct file *f = fd_get_file(fd);
     if(f != NULL)
-    {               
-        lock_release(&filesys_lock);
+    {        
         return file_tell(f);
     }
-
-    lock_release(&filesys_lock);
+    
     return -1;
 }
 
@@ -543,22 +515,18 @@ int mmap(int fd, void *addr)
         return -1;
     }
 
-    lock_acquire(&filesys_lock);
     struct file *file = file_reopen(old_file);
     if(file == NULL)
     {
-        lock_release(&filesys_lock);
         return -1;
     }
     
     off_t read_bytes = file_length(file);
     if(read_bytes == 0)
     {
-        lock_release(&filesys_lock);
         return -1;
     }
 
-    lock_release(&filesys_lock);
     int ofs = 0;
     while(read_bytes > 0)
     {
@@ -603,12 +571,10 @@ void munmap(int mapping)
             /* If dirty we write back to the file on the file system */
             if(pagedir_is_dirty(cur->pagedir, mm->spte->uaddr))
             {
-                lock_acquire(&filesys_lock);
                 file_write_at(mm->spte->file,
                               mm->spte->uaddr,
                               mm->spte->read_bytes,
                               mm->spte->offset);
-                lock_release(&filesys_lock);
             }
 
             frame_free(pagedir_get_page(cur->pagedir, mm->spte->uaddr));

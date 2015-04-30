@@ -203,16 +203,14 @@ bool load_file(struct spt_entry *spte)
         return false;
     }
 
-    lock_acquire(&filesys_lock);
     if(spte->read_bytes != file_read_at(spte->file, frame,
                                         spte->read_bytes,
                                         spte->offset))
     {
-        lock_release(&filesys_lock);
         frame_free(frame);
         return false;
     }
-    lock_release(&filesys_lock);
+
     memset(frame + spte->read_bytes, 0, spte->zero_bytes); 
 
     if(!install_page(spte->uaddr, frame, spte->writable))
