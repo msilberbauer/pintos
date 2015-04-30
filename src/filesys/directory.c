@@ -288,12 +288,12 @@ char *get_filename(char *path)
 
 char *get_dirname(char *path, bool ignore_last_token)
 {
-    char *s = path;
-
-    char *result = (char *)malloc(strlen(path)+1);
-    strlcpy(result, path, strlen(path)+1);
-    
     int i = 0;
+    
+    char *s = path;
+    char *result = (char *)malloc(strlen(path)+1);
+    strlcpy(result, path, strlen(path)+1); 
+
     while(*s != '/')
     {
         if(*s == '\0' && ignore_last_token)
@@ -339,15 +339,20 @@ struct dir *get_dir(char *path, bool ignore_last_token)
     char *dir_name = s;
     while(*s != '\0')
     {
+        if(*s == '/')
+        {
+            s++;
+        }
         dir_name = get_dirname(s, ignore_last_token);
         if(dir_name == NULL || *dir_name == '\0')
         {
             free(dir_name);
+            
             if(inode_is_removed(cur_dir->inode))
             {
                 return NULL;
             }
-            
+
             return cur_dir;
         }
 

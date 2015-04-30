@@ -73,15 +73,20 @@ struct file *filesys_open (const char *name)
         inode = dir_get_inode(dir);
     }else
     {
-        if (dir != NULL)
-            dir_lookup (dir, file, &inode);
+        if(dir != NULL)
+        {
+            dir_lookup(dir, file, &inode);
+        }
         dir_close (dir);
     }
 
-    if(inode == NULL || inode_is_removed (inode))
+    if(inode == NULL)
+    {
         return NULL;
-    else
+    }else
+    {
         return file_open (inode);
+    }
 }
 
 /* Deletes the file named NAME.

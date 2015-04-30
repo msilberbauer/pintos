@@ -247,9 +247,9 @@ bool grow(struct inode_disk *disk_inode, off_t length)
             for(j = cur_sectors - 251 - (i * 128);
                 j < target_sectors - 251 - (i * 128) && j < 128; j++)
             {
-                if(free_map_allocate(1, &indirect->sectors[i]))
+                if(free_map_allocate(1, &indirect->sectors[j]))
                 {
-                    cache_write(indirect->sectors[i], zeros);
+                    cache_write(indirect->sectors[j], zeros);
                     cur_sectors++;
                 }else
                 {
@@ -311,7 +311,8 @@ static block_sector_t byte_to_sector (const struct inode *inode, off_t pos)
         cache_read(inode->data.sectors[124], (void *) i_node_disk);
         block_sector_t b = i_node_disk->sectors[(sector - 251) / 128];
         cache_read(b, i_node_disk);
-        b = i_node_disk->sectors[(sector - 251) % 128];            
+        int t = (sector - 251) % 128;
+        b = i_node_disk->sectors[(sector - 251) % 128];
         free(i_node_disk);
         return b;
     }
