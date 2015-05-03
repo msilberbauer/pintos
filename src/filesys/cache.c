@@ -8,6 +8,11 @@
 
 #define CACHE_COUNT 64
 
+static void acquire_exclusive(int i);
+static void acquire_nonexclusive(int i);
+static void release_exclusive(int i);
+static void release_nonexclusive(int i);
+
 struct cache_block
 {
     block_sector_t sector;
@@ -15,6 +20,16 @@ struct cache_block
     bool is_dirty;
     bool in_use;
     bool is_accessed;
+
+    int readers;
+    int read_waiters;
+    int writers;
+    int write_waiters;
+
+    struct lock data_lock;
+    struct lock rw_lock;
+    struct condition read;
+    struct condition write;
 };
 
 struct cache_block cache[CACHE_COUNT];
@@ -36,8 +51,18 @@ void cache_init(void)
     int i;
     for(i = 0; i < CACHE_COUNT; i++)
     {
+        cache[i].sector = -1;
         cache[i].data = malloc(BLOCK_SECTOR_SIZE);
+        lock_init(&cache[i].data_lock);
+        lock_init(&cache[i].rw_lock);
+        cond_init(&cache[i].read);
+        cond_init(&cache[i].write);
+        cache[i].readers = 0;
+        cache[i].read_waiters = 0;
+        cache[i].writers = 0;
+        cache[i].write_waiters = 0;
     }
+
     list_init(&read_ahead_list);
     lock_init(&read_ahead_lock);
     cond_init(&read_ahead_list_not_empty);
@@ -55,17 +80,19 @@ void cache_done(void)
 
 void cache_flush(void)
 {
-    lock_acquire(&cache_lock);
     int i;
     for(i = 0; i < CACHE_COUNT; i++)
     {
+        acquire_nonexclusive(i);
+        lock_acquire(&cache[i].data_lock);
         if(cache[i].is_dirty)
         {
             block_write(fs_device, cache[i].sector, cache[i].data);
             cache[i].is_dirty = false;
         }
+        lock_release(&cache[i].data_lock);
+        release_nonexclusive(i);
     }
-    lock_release(&cache_lock);
 }
 
 int cache_find_block(block_sector_t sector)
@@ -73,18 +100,25 @@ int cache_find_block(block_sector_t sector)
     int i;
     for(i = 0; i < CACHE_COUNT; i++) /* If it as already in cache */
     {
+        lock_acquire(&cache[i].rw_lock);
         if(cache[i].sector == sector)
         {
+            lock_release(&cache[i].rw_lock);
             return i;
         }
+        lock_release(&cache[i].rw_lock);
     }
 
     for(i = 0; i < CACHE_COUNT; i++) /* If there is a free block */
     {
+        lock_acquire(&cache[i].rw_lock);
         if(!cache[i].in_use)
         {
+            lock_release(&cache[i].rw_lock);
             return i;
         }
+        lock_release(&cache[i].rw_lock);
+        
     }
 
     return cache_evict(); /* We have to evict */
@@ -94,6 +128,23 @@ int cache_evict (void)
 {
     while(true)
     {
+        turn++;
+        if(turn >= CACHE_COUNT)
+        {
+            turn = 0;
+        }
+        
+        lock_acquire(&cache[turn].rw_lock);
+        if(cache[turn].readers ||
+           cache[turn].writers ||
+           cache[turn].read_waiters ||
+           cache[turn].write_waiters)
+        {
+            /* We do not evict */
+            lock_release(&cache[turn].rw_lock);
+            continue;
+        }
+
         if(cache[turn].is_accessed)
         {
             cache[turn].is_accessed = false;
@@ -101,14 +152,12 @@ int cache_evict (void)
         {
             break;
         }
-
-        turn ++;
-        if(turn >= CACHE_COUNT)
-        {
-            turn = 0;
-        }
+        
+        lock_release(&cache[turn].rw_lock);
     }
-    
+ 
+    lock_release(&cache[turn].rw_lock);
+    lock_acquire(&cache[turn].data_lock);
     if(cache[turn].is_dirty)
     {
         block_write(fs_device, cache[turn].sector, cache[turn].data);
@@ -116,8 +165,40 @@ int cache_evict (void)
     
     cache[turn].in_use = false;
     cache[turn].is_dirty = false;
-    
+    lock_release(&cache[turn].data_lock);
+
     return turn;
+}
+
+static void acquire_nonexclusive(int i)
+{
+    lock_acquire(&cache[i].rw_lock);
+    if(cache[i].writers || cache[i].write_waiters)
+    {
+        ++cache[i].read_waiters;
+        do
+        {
+            cond_wait(&cache[i].read, &cache[i].rw_lock);
+        }while(cache[i].writers || cache[i].write_waiters);
+        
+        --cache[i].read_waiters;
+    }
+
+    ++cache[i].readers;
+
+    lock_release(&cache[i].rw_lock);
+}
+
+static void release_nonexclusive(int i)
+{
+    lock_acquire(&cache[i].rw_lock);
+    --cache[i].readers;
+    if(cache[i].write_waiters)
+    {
+        cond_signal(&cache[i].write, &cache[i].rw_lock);
+    }
+    
+    lock_release(&cache[i].rw_lock);
 }
 
 void cache_read(block_sector_t sector, uint8_t *buffer)
@@ -129,7 +210,11 @@ void cache_read_partial(block_sector_t sector, uint8_t *buffer, int offset, int 
 {
     lock_acquire(&cache_lock);
     int i = cache_find_block(sector);
-
+    lock_release(&cache_lock);
+    
+    acquire_nonexclusive(i);
+    
+    lock_acquire(&cache[i].data_lock);
     if(!cache[i].in_use)
     {
         cache[i].sector = sector;
@@ -140,7 +225,42 @@ void cache_read_partial(block_sector_t sector, uint8_t *buffer, int offset, int 
 
     cache[i].is_accessed = true;
     memcpy(buffer, cache[i].data + offset, chunk_size);
-    lock_release(&cache_lock);
+    lock_release(&cache[i].data_lock);
+
+    release_nonexclusive(i);
+}
+
+static void acquire_exclusive(int i)
+{
+    lock_acquire(&cache[i].rw_lock);
+    if(cache[i].readers || cache[i].writers)
+    {
+        ++cache[i].write_waiters;
+        do
+        {
+            cond_wait(&cache[i].write, &cache[i].rw_lock);
+        }while(cache[i].readers || cache[i].writers);
+        
+        --cache[i].write_waiters;
+    }
+    
+    cache[i].writers = 1;
+    lock_release(&cache[i].rw_lock);    
+}
+
+static void release_exclusive(int i)
+{
+    lock_acquire(&cache[i].rw_lock);
+    cache[i].writers = 0;
+    if(cache[i].write_waiters)
+    {
+        cond_signal(&cache[i].write, &cache[i].rw_lock);
+    }
+    else
+    {
+        cond_broadcast(&cache[i].read, &cache[i].rw_lock);
+    }
+    lock_release(&cache[i].rw_lock);
 }
 
 void cache_write(block_sector_t sector, uint8_t *buffer)
@@ -151,8 +271,12 @@ void cache_write(block_sector_t sector, uint8_t *buffer)
 void cache_write_partial(block_sector_t sector, uint8_t *buffer, int offset, int chunk_size)
 {
     lock_acquire(&cache_lock);
-    int i = cache_find_block(sector); 
- 
+    int i = cache_find_block(sector);
+    lock_release(&cache_lock);
+
+    acquire_exclusive(i);
+    
+    lock_acquire(&cache[i].data_lock);
     if(!cache[i].in_use)
     {
         cache[i].sector = sector;
@@ -169,7 +293,10 @@ void cache_write_partial(block_sector_t sector, uint8_t *buffer, int offset, int
     {
         memset(cache[i].data + offset, 0, chunk_size);
     }
-    lock_release(&cache_lock);
+
+    lock_release(&cache[i].data_lock);
+
+    release_exclusive(i);
 }
 
 /* Flush daemon */
@@ -177,7 +304,7 @@ void flush_daemon(void *aux UNUSED)
 {
     while(true)
     {
-        timer_msleep(2 * 1000);
+        timer_msleep(30 * 1000);
         cache_flush();
     }
 }
@@ -198,7 +325,11 @@ void read_ahead_daemon(void *aux UNUSED)
 
         lock_acquire(&cache_lock);
         int i = cache_find_block(tr->sector);
+        lock_release(&cache_lock); 
 
+        acquire_nonexclusive(i);
+        
+        lock_acquire(&cache[i].data_lock);
         if(!cache[i].in_use)
         {
             cache[i].sector = tr->sector;
@@ -208,7 +339,9 @@ void read_ahead_daemon(void *aux UNUSED)
         }
 
         cache[i].is_accessed = true;
-        lock_release(&cache_lock);        
+        lock_release(&cache[i].data_lock);
+
+        release_nonexclusive(i);
     }
 }
 
