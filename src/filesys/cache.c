@@ -20,6 +20,15 @@ struct cache_block
 struct cache_block cache[CACHE_COUNT];
 struct lock cache_lock;
 static int turn = 0;
+static struct list read_ahead_list;
+static struct lock read_ahead_lock;
+static struct condition read_ahead_list_not_empty;
+
+struct to_read
+{
+    block_sector_t sector;
+    struct list_elem elem;
+};
 
 void cache_init(void)
 {
@@ -29,6 +38,9 @@ void cache_init(void)
     {
         cache[i].data = malloc(BLOCK_SECTOR_SIZE);
     }
+    list_init(&read_ahead_list);
+    lock_init(&read_ahead_lock);
+    cond_init(&read_ahead_list_not_empty);
 }
 
 void cache_done(void)
@@ -158,5 +170,58 @@ void cache_write_partial(block_sector_t sector, uint8_t *buffer, int offset, int
         memset(cache[i].data + offset, 0, chunk_size);
     }
     lock_release(&cache_lock);
+}
+
+/* Flush daemon */
+void flush_daemon(void *aux UNUSED)
+{
+    while(true)
+    {
+        timer_msleep(2 * 1000);
+        cache_flush();
+    }
+}
+
+/* Readahead daemon */
+void read_ahead_daemon(void *aux UNUSED)
+{
+    while(true)
+    {
+        lock_acquire(&read_ahead_lock);
+        while(list_empty(&read_ahead_list))
+        {
+            cond_wait(&read_ahead_list_not_empty, &read_ahead_lock);
+        }
+        struct to_read *tr = list_entry(list_pop_front (&read_ahead_list),
+                                         struct to_read, elem);
+        lock_release(&read_ahead_lock);
+
+        lock_acquire(&cache_lock);
+        int i = cache_find_block(tr->sector);
+
+        if(!cache[i].in_use)
+        {
+            cache[i].sector = tr->sector;
+            cache[i].is_dirty = false;
+            cache[i].in_use = true;
+            block_read(fs_device, tr->sector, cache[i].data);
+        }
+
+        cache[i].is_accessed = true;
+        lock_release(&cache_lock);        
+    }
+}
+
+void read_ahead_request(block_sector_t sector)
+{
+    struct to_read *tr = (struct to_read *) malloc(sizeof(struct to_read));
+    ASSERT(tr != NULL);
+
+    tr->sector = sector;
+    
+    lock_acquire(&read_ahead_lock);
+    list_push_back(&read_ahead_list, &tr->elem);
+    cond_signal(&read_ahead_list_not_empty, &read_ahead_lock);
+    lock_release(&read_ahead_lock);    
 }
 

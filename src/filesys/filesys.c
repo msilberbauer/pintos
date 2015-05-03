@@ -26,8 +26,14 @@ void filesys_init (bool format)
     cache_init();
     if (format)
         do_format ();
+    
+    free_map_open ();
+    
+    /* Start flush daemon */
+    thread_create("flush daemon", 63, flush_daemon, NULL);
 
-    free_map_open ();    
+    /* Start readahead daemon */
+    thread_create("readahead daemon", 63, read_ahead_daemon, NULL);
 }
 
 /* Shuts down the file system module, writing any unwritten data

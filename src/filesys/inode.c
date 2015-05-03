@@ -489,13 +489,25 @@ off_t inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offse
         {            
             return bytes_read;
         }
-                
-        cache_read_partial(sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
 
+        cache_read_partial(sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
+        
         /* Advance. */
         size -= chunk_size;
         offset += chunk_size;
         bytes_read += chunk_size;
+
+        /* Read ahead */
+        if(size > 0)
+        {            
+            block_sector_t next_sector_idx = byte_to_sector (inode, offset);          
+            if(next_sector_idx != -1)
+            {            
+                /* Request read ahead */
+                //printf("a request\n");
+                read_ahead_request(next_sector_idx);
+            }            
+        }        
     }
 
     return bytes_read;
